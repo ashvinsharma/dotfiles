@@ -75,8 +75,18 @@
 .claude/stats-cache.json
 .claude/policy-limits.json
 .claude/agents.tar.gz
-.claude/plugins/
 .claude/settings.local.json
+# Claude plugins — track manifest, not installed binaries
+.claude/plugins/cache/
+.claude/plugins/data/
+.claude/plugins/marketplaces/
+.claude/plugins/known_marketplaces.json
+
+# Karabiner — skip auto-generated backups
+.config/karabiner/automatic_backups/
+
+# Raycast — extensions are store-installed binaries, ai/ is empty
+.config/raycast/
 
 # opencode — runtime deps
 .config/opencode/node_modules/

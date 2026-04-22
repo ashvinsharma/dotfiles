@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "plugins": {
+    "gopls-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/ashvin/.claude/plugins/cache/claude-plugins-official/gopls-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-01-12T10:04:36.920Z",
+        "lastUpdated": "2026-01-12T10:04:36.920Z"
+      }
+    ],
+    "ruby-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/ashvin/.claude/plugins/cache/claude-plugins-official/ruby-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-03-20T11:34:22.076Z",
+        "lastUpdated": "2026-03-20T11:34:22.076Z",
+        "gitCommitSha": "b664e152af5742dd11b6a6e5d7a65848a8c5a261"
+      }
+    ]
+  }
+}
