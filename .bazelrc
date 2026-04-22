@@ -1,0 +1,4 @@
+# Workaround for Bazel 8.x + macOS/Xcode 26 absolute path include check
+# https://github.com/bazelbuild/bazel/issues/XXXXX
+build --noincompatible_strict_action_env
+build --allow_analysis_cache_discard

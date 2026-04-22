@@ -1,0 +1,32 @@
+[core]
+	excludesFile = ~/.gitignore
+	editor = nvim
+	hooksPath = /Users/ashvin/.gitlab-gitleaks/hooks
+[rebase]
+	autosquash = true
+[fetch]
+	prune = true
+[status]
+	submoduleSummary = true
+[user]
+	email = ashsharma@gitlab.com
+	name = Ashvin Sharma
+	signingkey = 9D6305EE2A72F8765D128E04597EBF558AB76D5C!
+[url "git@gitlab.com:"]
+	insteadOf = https://gitlab.com/
+[maintenance]
+	repo = /Users/ashvin/workspace/gitlab-org/gdk
+	repo = /Users/ashvin/workspace/gitlab-org/gdk/gitlab
+[pack]
+	windowMemory = 1g
+	threads = 8
+[pull]
+	rebase = true
+[commit]
+	gpgsign = true
+[tag]
+	gpgSign = true
+[http]
+	postBuffer = 157286400
+[safe]
+	directory = /Users/ashvin/workspace/gitlab-com/content-sites/handbook
