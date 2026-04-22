@@ -1,4 +1,7 @@
 pre-commit:
   commands:
+    check-app-configs:
+      run: scripts/check-app-configs.sh
+      interactive: true
     gitleaks:
       run: gitleaks protect --staged --redact

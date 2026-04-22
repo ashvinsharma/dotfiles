@@ -1,6 +1,7 @@
 lefthook.yml
 README.md
 install.sh
+scripts/
 .gitignore
 # Apps that write back to their config — keep as real files, not symlinks
 .claude/settings.json
