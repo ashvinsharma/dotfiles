@@ -1,0 +1,97 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(pwd:*)",
+      "Bash(wc:*)",
+      "Bash(which:*)",
+      "Bash(file:*)",
+      "Bash(stat:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(git branch:*)",
+      "Bash(claude mcp --help:*)",
+      "Bash(claude mcp add GitLab -- npx -y mcp-remote@0.1.24 https://gitlab.com/api/v4/mcp)",
+      "Bash(claude mcp add:*)",
+      "Bash(claude mcp list:*)",
+      "mcp__GitLab__get_merge_request",
+      "mcp__GitLab__get_merge_request_diffs",
+      "WebFetch(domain:gitlab.com)",
+      "Bash(curl:*)",
+      "mcp__GitLab__search",
+      "mcp__GitLab__get_mcp_server_version",
+      "Bash(git remote:*)",
+      "mcp__GitLab__semantic_code_search",
+      "mcp__GitLab__get_issue",
+      "Bash(go build:*)",
+      "Bash(export GOTOOLCHAIN=local)",
+      "Bash(go test:*)",
+      "Bash(golangci-lint run:*)",
+      "Bash(opencode run:*)"
+    ],
+    "ask": [
+      "Bash(rm:*)",
+      "Bash(rmdir:*)",
+      "Bash(mv:*)",
+      "Bash(git reset:*)",
+      "Bash(git clean:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push:*)",
+      "Bash(tofu apply:*)",
+      "Bash(tofu destroy:*)",
+      "Bash(terraform apply:*)",
+      "Bash(terraform destroy:*)",
+      "Bash(sudo:*)",
+      "Bash(chmod:*)",
+      "Bash(chown:*)",
+      "Bash(security:*)"
+    ],
+    "defaultMode": "acceptEdits"
+  },
+  "model": "sonnet[1m]",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/block-force-push.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh",
+    "padding": 1
+  },
+  "enabledPlugins": {
+    "gopls-lsp@claude-plugins-official": true,
+    "ruby-lsp@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "gitlab-skills": {
+      "source": {
+        "source": "git",
+        "url": "https://gitlab.com/gitlab-org/ai/skills.git"
+      }
+    }
+  },
+  "effortLevel": "high",
+  "advisorModel": "opus",
+  "skipDangerousModePermissionPrompt": true
+}

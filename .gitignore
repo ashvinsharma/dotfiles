@@ -54,3 +54,33 @@
 .zsh_sessions/
 .Trash/
 .DS_Store
+
+# Claude — runtime and context state (path-specific to avoid blocking other todos/, tasks/, etc.)
+.claude/history.jsonl
+.claude/sessions/
+.claude/cache/
+.claude/telemetry/
+.claude/todos/
+.claude/tasks/
+.claude/plans/
+.claude/retro/
+.claude/debug/
+.claude/backups/
+.claude/downloads/
+.claude/paste-cache/
+.claude/shell-snapshots/
+.claude/file-history/
+.claude/session-env/
+.claude/statsig/
+.claude/stats-cache.json
+.claude/policy-limits.json
+.claude/agents.tar.gz
+.claude/plugins/
+.claude/settings.local.json
+
+# opencode — runtime deps
+.config/opencode/node_modules/
+.config/opencode/bun.lock
+
+# Claude skill runtime deps
+.claude/skills/pretty-mermaid/node_modules/

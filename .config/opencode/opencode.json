@@ -1,0 +1,85 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "gitlab/duo-chat-sonnet-4-6",
+  "small_model": "gitlab/duo-chat-haiku-4-5",
+  "share": "disabled",
+  "provider": {
+    "gitlab": {
+      "options": {
+        "timeout": 600000,
+        "setCacheKey": true
+      }
+    }
+  },
+  "permission": {
+    "bash": {
+      "tofu apply*": "ask",
+      "tofu destroy*": "ask",
+      "terraform apply*": "ask",
+      "terraform destroy*": "ask",
+      "git push*": "ask",
+      "security*": "ask"
+    },
+    "external_directory": {
+      "~/workspace/**": "allow",
+      "/tmp/**": "allow",
+      "/private/tmp/**": "allow",
+      "/Users/ashvin/.local/share/mise/installs/**": "allow"
+    },
+    "read": {
+      "/Users/ashvin/workspace/**": "allow",
+      "/tmp/**": "allow",
+      "/private/tmp/**": "allow",
+      "/Users/ashvin/.local/share/mise/installs/**": "allow"
+    },
+    "edit": {
+      "/Users/ashvin/workspace/**": "allow",
+      "/tmp/**": "allow",
+      "/private/tmp/**": "allow",
+      "/Users/ashvin/.config/opencode/**": "allow"
+    }
+  },
+  "plugin": [
+    "opencode-beads",
+    "@franlol/opencode-md-table-formatter@0.0.3"
+  ],
+  "mcp": {
+    "serena": {
+      "type": "local",
+      "command": [
+        "bash", "-c",
+        "eval $(mise env --shell bash) && uvx --from serena-agent serena start-mcp-server --context agent --transport stdio"
+      ],
+      "enabled": false
+    },
+    "gitlab-knowledge-graph": {
+      "type": "remote",
+      "url": "http://localhost:27495/mcp/sse",
+      "enabled": true
+    },
+    "gitlab": {
+      "type": "local",
+      "command": [
+        "/Users/ashvin/.local/bin/gitlab-mcp-launcher"
+      ],
+      "enabled": false
+    },
+    "sequential-thinking": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "enabled": true
+    },
+    "glean": {
+      "type": "remote",
+      "url": "https://gitlab-be.glean.com/mcp/default",
+      "oauth": {}
+    }
+  },
+  "experimental": {
+    "disable_paste_summary": true
+  }
+}
