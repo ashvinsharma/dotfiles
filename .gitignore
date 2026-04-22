@@ -1,0 +1,56 @@
+# Secrets and credentials — never commit these
+.ssh/
+.aws/
+.kube/
+.gnupg/
+.docker/config.json
+.gitlab-agent-token*
+.gitlab-token*
+.gitlab-mcp-token.json
+.gitlab-license
+.mcp-auth
+.tsh/
+.claude.json
+.claude.json.tmp*
+
+# Shell history
+.zsh_history
+.bash_history
+.psql_history
+.irb_history
+.guard_history
+.lesshst
+.wget-hsts
+
+# macOS
+.DS_Store
+.CFUserTextEncoding
+
+# Runtime / managed by installers — not for stow
+.oh-my-zsh/
+.asdf/
+.cargo/
+.rustup/
+.bun/
+.gem/
+.gradle/
+.npm/
+.yarn/
+.cache/
+.local/share/
+.local/state/
+
+# IDE / editor state
+.viminfo
+.idea/
+.ijwb/
+.vscode/
+.cursor/
+.codeium/
+.windsurf/
+
+# Misc runtime state
+.zcompdump*
+.zsh_sessions/
+.Trash/
+.DS_Store
