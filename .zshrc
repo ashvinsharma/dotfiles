@@ -204,3 +204,4 @@ glab() {
 
 # Disable Ctrl+S flow control (XOFF) so it can be used as tmux prefix
 stty -ixon 2>/dev/null
+# test
