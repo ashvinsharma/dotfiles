@@ -1,9 +1,23 @@
+# Stow default ignores (must be re-listed here — .stow-local-ignore replaces, not extends, the defaults)
+\.git
+\.gitignore
+\.gitmodules
+CVS
+\.svn
+RCS
+^/$
+
+# Dotfiles repo tooling — not for stow
 lefthook.yml
-README.md
-install.sh
-scripts/
-.gitignore
+\.gitleaksignore
+README\.md
+install\.sh
+scripts
+
 # Apps that write back to their config — keep as real files, not symlinks
-.claude/settings.json
-.config/karabiner/karabiner.json
-.config/opencode/opencode.json
+\.claude/settings\.json
+\.claude/plugins/installed_plugins\.json
+\.claude/plugins/blocklist\.json
+\.config/karabiner/karabiner\.json
+\.config/opencode/opencode\.json
+\.tool-versions

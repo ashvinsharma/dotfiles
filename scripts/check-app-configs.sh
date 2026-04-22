@@ -10,8 +10,11 @@ REPO="$(git rev-parse --show-toplevel)"
 # live_path:repo_relative_path
 APP_FILES=(
   "$HOME/.claude/settings.json:.claude/settings.json"
+  "$HOME/.claude/plugins/installed_plugins.json:.claude/plugins/installed_plugins.json"
+  "$HOME/.claude/plugins/blocklist.json:.claude/plugins/blocklist.json"
   "$HOME/.config/karabiner/karabiner.json:.config/karabiner/karabiner.json"
   "$HOME/.config/opencode/opencode.json:.config/opencode/opencode.json"
+  "$HOME/.tool-versions:.tool-versions"
 )
 
 CHANGED=()
