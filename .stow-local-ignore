@@ -14,6 +14,11 @@ README\.md
 install\.sh
 scripts
 
+# Claude dirs — kept as real dirs with individual file symlinks inside (Claude Code uses lstat)
+\.claude/commands
+\.claude/skills
+\.claude/agents
+
 # Apps that write back to their config — keep as real files, not symlinks
 \.claude/settings\.json
 \.claude/plugins/installed_plugins\.json
