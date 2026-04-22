@@ -14,7 +14,6 @@ APP_FILES=(
   "$HOME/.claude/plugins/blocklist.json:.claude/plugins/blocklist.json"
   "$HOME/.config/karabiner/karabiner.json:.config/karabiner/karabiner.json"
   "$HOME/.config/opencode/opencode.json:.config/opencode/opencode.json"
-  "$HOME/.tool-versions:.tool-versions"
 )
 
 CHANGED=()

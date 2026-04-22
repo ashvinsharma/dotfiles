@@ -20,4 +20,3 @@ scripts
 \.claude/plugins/blocklist\.json
 \.config/karabiner/karabiner\.json
 \.config/opencode/opencode\.json
-\.tool-versions
