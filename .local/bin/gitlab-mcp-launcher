@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Detects GitLab instance from git remote + your SSH config, sets API URL + PAT
+
+set -euo pipefail
+
+export GITLAB_API_URL="https://gitlab.com/api/v4"
+
+get_secret() {
+  local service="$1"
+  local value
+  value="$(security find-generic-password -a "$(whoami)" -s "$service" -w 2>/dev/null)" || {
+    echo "error: failed to retrieve '$service' from keychain" >&2
+    exit 1
+  }
+  printf '%s' "$value"
+}
+
+use_work_account() {
+  export GITLAB_USE_OAUTH="true"
+  export GITLAB_OAUTH_CLIENT_ID
+  export GITLAB_OAUTH_CLIENT_SECRET
+  GITLAB_OAUTH_CLIENT_ID="$(get_secret "opencode-gitlab-oauth-client-id")"
+  GITLAB_OAUTH_CLIENT_SECRET="$(get_secret "opencode-gitlab-oauth-client-secret")"
+}
+
+# Silently falls back to work account if not in a git repo or no origin remote
+REMOTE_URL="$(git remote get-url origin 2>/dev/null)" || true
+
+if [[ "$REMOTE_URL" == git@gitlab-personal:* ]]; then
+  export GITLAB_PERSONAL_ACCESS_TOKEN
+  GITLAB_PERSONAL_ACCESS_TOKEN="$(get_secret "opencode_gitlab_mcp_pat_key")"
+  echo "Running personal GitLab for MCP server" >&2
+  exec npx -y @zereight/mcp-gitlab
+fi
+
+use_work_account
+
+echo "Using $GITLAB_API_URL for ${REMOTE_URL:-<no remote>}" >&2
+
+export USE_GITLAB_WIKI="false"
+export USE_MILESTONE="false"
+export USE_PIPELINE="false"
+exec npx -y @zereight/mcp-gitlab
