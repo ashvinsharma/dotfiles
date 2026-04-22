@@ -2,3 +2,7 @@ lefthook.yml
 README.md
 install.sh
 .gitignore
+# Apps that write back to their config — keep as real files, not symlinks
+.claude/settings.json
+.config/karabiner/karabiner.json
+.config/opencode/opencode.json
