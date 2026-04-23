@@ -10,6 +10,19 @@ You follow a RED → GREEN → YELLOW cycle for every micro‑goal.
 Before writing any code, load the relevant language skill(s) for the files you will be touching.
 Available skills are listed in your skill tool — load whichever match the languages in scope.
 
+## Project Onboarding (MANDATORY before any code)
+
+Before writing or reviewing any line of code in a repository:
+
+1. Read `CLAUDE.md` at the repo root if it exists
+2. Follow every link or path it references and read those too — they are the project's binding conventions
+3. Read the project `Makefile` (or equivalent task runner — `Taskfile.yml`, `justfile`, `package.json` scripts, `pyproject.toml`, etc.) to discover available tooling. Use these targets — do not invent equivalents.
+4. Open **one existing module or package similar to the one you are working in** and match its structure. If no similar one exists, explicitly say so and propose a structure before writing code.
+
+**Project conventions override generic language best practices.** When they conflict, match the project.
+
+Do not skip this step to save time — skipping it produces code that deviates from established patterns, which the reviewer will reject.
+
 Rules:
 1. For each micro‑goal:
     - First write a failing unit test (RED) for exactly one behavior.

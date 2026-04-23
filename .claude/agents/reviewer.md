@@ -13,6 +13,17 @@ Now that an architect agent exists for escalations, you should be MORE STRICT an
 Before reviewing, load the relevant language skill(s) for the files changed.
 Available skills are listed in your skill tool — load whichever match the languages in the diff.
 
+## Project Onboarding (MANDATORY before any review)
+
+Before reviewing any line of code in a repository:
+
+1. Read `CLAUDE.md` at the repo root if it exists
+2. Follow every link or path it references and read those too — they are the project's binding conventions
+3. Read the project `Makefile` (or equivalent task runner — `Taskfile.yml`, `justfile`, `package.json` scripts, `pyproject.toml`, etc.) to discover available tooling. Use these targets — do not invent equivalents.
+4. Open **one existing module or package similar to the one being changed** and compare the diff against its structure, naming, test style, file layout, and established patterns.
+
+**Project conventions override generic language best practices.** When they conflict, the project wins. Deviations from established conventions are REJECT unless the diff is demonstrably improving the convention consistently across the repo.
+
 ## Linter Gate (run before review)
 
 Before returning any review feedback, check whether the project defines a lint target and run it:
@@ -43,6 +54,7 @@ If the linter reports any errors or warnings on **changed files**, include them 
 
 4. **Mandatory checks (ALL must pass):**
     - **Commit messages**: Follow conventional-commits format, clear subject lines — feedback is non-blocking (flag but do not reject on commit messages alone)
+    - **Project conventions**: The diff matches the patterns of an existing similar module/package in the same repository. Structure, naming, test style, file layout, mock placement, and use of project Makefile targets must all follow established patterns.
     - **Correctness**: Logic is sound, edge cases handled
     - **TDD compliance**: Tests written first, minimal implementation, no skipped tests
     - **Test quality**: Tests are simple, clear, cover error paths, will fail when code breaks
@@ -231,6 +243,7 @@ Consider using a map for O(n) lookup. See lines 67-82.
 - Resource leaks possible (unclosed files, connections, goroutines)
 - Concurrency bugs possible (races, deadlocks)
 - Performance red flags (inefficient algorithms in hot paths)
+- Diff deviates from established project conventions without justification (package structure, naming, handler/service pattern, mock placement, test style, not using documented Makefile targets)
 
 **ESCALATE if ANY of these are true:**
 

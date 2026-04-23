@@ -1,6 +1,6 @@
 ---
 name: parallel-review
-description: Four specialist reviewer agents run in parallel on every review — Correctness, Coverage, Security (STRIDE), and Dependency Audit — producing a unified REVIEW_STATUS used by both tdd-review-loop and review-and-fix
+description: Four specialist reviewer agents run in parallel on every review — Correctness, Coverage+Conventions, Security (STRIDE), and Dependency Audit — producing a unified REVIEW_STATUS used by both tdd-review-loop and review-and-fix
 ---
 
 # Parallel Review Protocol
@@ -38,9 +38,15 @@ Invoke the `reviewer` subagent:
 
 Parse response for `REVIEW_STATUS:`.
 
-### Agent 2 — Coverage
+### Agent 2 — Coverage + Project Conventions
 Invoke the `reviewer` subagent:
-> "Focus exclusively on test coverage. Check: every changed code path has a test, error paths are tested, dead code introduced by this diff, tests will fail if the code breaks (not just structural). Do NOT review correctness or style — that is handled separately. Languages: [list]. [diff]"
+> "Focus on test coverage AND project-convention adherence.
+>
+> **Coverage**: every changed code path has a test, error paths are tested, dead code introduced by this diff, tests will fail if the code breaks (not just structural).
+>
+> **Project conventions**: read `CLAUDE.md` and every doc/path it references, read the project `Makefile` (or equivalent task runner), and open **one existing module or package similar to the one being changed**. Flag deviations: package structure, naming (stuttering, non-descriptive names), test style (missing table tests where multiple cases share logic, missing `t.Helper()` on helpers), mock placement, handler/service/repository pattern, missing use of documented Makefile targets.
+>
+> Do NOT review correctness, security, or dependencies — other agents handle those. Languages: [list]. [diff]"
 
 Parse response for `REVIEW_STATUS:`.
 
@@ -80,7 +86,7 @@ When any agent rejects, collect all issues into a single block for the coder:
 CORRECTNESS ISSUES:
 [Agent 1 ISSUES block, or "none"]
 
-COVERAGE ISSUES:
+COVERAGE + CONVENTION ISSUES:
 [Agent 2 ISSUES block, or "none"]
 
 SECURITY ISSUES:
