@@ -1,0 +1,41 @@
+[
+  {
+    "context": "Editor && vim_mode == normal",
+    "bindings": {
+      "ctrl-h": "workspace::ActivatePaneLeft",
+      "ctrl-j": "workspace::ActivatePaneDown",
+      "ctrl-k": "workspace::ActivatePaneUp",
+      "ctrl-l": "workspace::ActivatePaneRight",
+
+      "space space": "tab_switcher::Toggle",
+      "space s f": "file_finder::Toggle",
+      "space s g": "pane::DeploySearch",
+      "space s .": ["projects::OpenRecent", { "create_new_window": false }],
+      "space /": "buffer_search::Deploy",
+      "space s d": "diagnostics::Deploy",
+      "space q": "diagnostics::Deploy",
+
+      "g r d": "editor::GoToDefinition",
+      "g r r": "editor::FindAllReferences",
+      "g r n": "editor::Rename",
+      "g r a": "editor::ToggleCodeActions",
+      "g r i": "editor::GoToImplementation",
+      "g r D": "editor::GoToDeclaration",
+      "g r t": "editor::GoToTypeDefinition",
+      "g O": "outline::Toggle",
+      "g W": "project_symbols::Toggle",
+
+      "space t h": "editor::ToggleInlayHints",
+
+      "space c a": "editor::CopyPath",
+      "space c r": "editor::CopyRelativePath",
+      "space c f": "editor::CopyFileName"
+    }
+  },
+  {
+    "context": "Editor",
+    "bindings": {
+      "cmd-r": null
+    }
+  }
+]
