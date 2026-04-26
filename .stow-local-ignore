@@ -8,16 +8,17 @@ RCS
 ^/$
 
 # Dotfiles repo tooling — not for stow
-lefthook.yml
-\.gitleaksignore
-README\.md
-install\.sh
-scripts
+^lefthook\.yml$
+^\.gitleaksignore$
+^README\.md$
+^Makefile$
+^scripts$
 
 # Claude dirs — kept as real dirs with individual file symlinks inside (Claude Code uses lstat)
 \.claude/commands
 \.claude/skills
 \.claude/agents
+\.claude/settings\.local\.json
 
 # Apps that write back to their config — keep as real files, not symlinks
 \.claude/settings\.json

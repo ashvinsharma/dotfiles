@@ -1,0 +1,8 @@
+# Copy-managed files — kept as real files because their apps don't support symlinks.
+# Both Makefile (stow target) and scripts/check-app-configs.sh read this list.
+# Format: repo-relative path (live location is always $HOME/<path>)
+.claude/settings.json
+.claude/plugins/installed_plugins.json
+.claude/plugins/blocklist.json
+.config/karabiner/karabiner.json
+.config/opencode/opencode.json
