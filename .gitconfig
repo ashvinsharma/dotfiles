@@ -1,7 +1,6 @@
 [core]
 	excludesFile = ~/.gitignore
 	editor = nvim
-	hooksPath = /Users/ashvin/.gitlab-gitleaks/hooks
 [rebase]
 	autosquash = true
 [fetch]

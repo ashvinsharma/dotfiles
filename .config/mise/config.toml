@@ -4,9 +4,13 @@ idiomatic_version_file_enable_tools = []
 [tools]
 github-cli = "latest"
 gitleaks = "8.30.0"
+lefthook = "latest"
 go = "1.25.5"
+"go:github.com/dnaeon/makefile-graph/cmd/makefile-graph" = "0.1.6"
 golangci-lint = "v2.7.2"
 node = "25.2.1"
 opencode = "latest"
 opentofu = "1.11.0"
+postgres = "17.8"
 python = "3.12.12"
+viddy = "latest"
