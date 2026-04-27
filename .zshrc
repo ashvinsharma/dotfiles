@@ -119,6 +119,7 @@ alias kx=kubectx
 alias kns=kubens
 alias ds="dig +short "
 alias watchh="watch "
+alias rgi="rg -i"
 alias oc=opencode
 
 source $(brew --prefix)/share/zsh-autosuggestions/zsh-autosuggestions.zsh
@@ -205,3 +206,10 @@ glab() {
 # Disable Ctrl+S flow control (XOFF) so it can be used as tmux prefix
 stty -ixon 2>/dev/null
 # test
+
+loadenv() {
+    [[ -f "$1" ]] || { echo "file $1 not found"; return 1; }
+    set -a
+    source "$1"
+    set +a
+}

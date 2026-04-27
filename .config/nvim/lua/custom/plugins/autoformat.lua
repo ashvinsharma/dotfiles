@@ -31,12 +31,22 @@ return { -- Autoformat
     end,
     formatters_by_ft = {
       lua = { 'stylua' },
-      -- Conform can also run multiple formatters sequentially
-      -- python = { "isort", "black" },
-      --
-      -- You can use 'stop_after_first' to run the first available formatter from the list
-      -- javascript = { "prettierd", "prettier", stop_after_first = true },
       go = { 'goimports', 'gofmt' },
+      sh = { 'shfmt' },
+      bash = { 'shfmt' },
+      zsh = { 'shfmt' },
+      yaml = { 'yamlfmt' },
+      terraform = { 'tofu_fmt' },
+    },
+    -- Custom formatters not built into conform
+    formatters = {
+      -- OpenTofu uses `tofu fmt` instead of `terraform fmt`.
+      -- The `-` flag makes it read from stdin, which is how conform pipes files through.
+      tofu_fmt = {
+        command = 'tofu',
+        args = { 'fmt', '-' },
+        stdin = true,
+      },
     },
   },
 }

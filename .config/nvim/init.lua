@@ -164,6 +164,20 @@ vim.opt.confirm = true
 
 require 'custom.settings.fold'
 
+-- Load .nvim.lua from the project root if it exists.
+-- This lets each project define its own linters, formatters, keymaps, etc.
+-- Neovim will prompt you to trust the file the first time.
+vim.opt.exrc = true
+
+-- Teach Neovim that .tofu files are OpenTofu (terraform filetype).
+-- This makes treesitter, LSP (terraformls), linters (tflint), and
+-- formatters (tofu_fmt) all activate automatically on .tofu files.
+vim.filetype.add {
+  extension = {
+    tofu = 'terraform',
+  },
+}
+
 -- [[ Basic Keymaps ]]
 --  See `:help vim.keymap.set()`
 
