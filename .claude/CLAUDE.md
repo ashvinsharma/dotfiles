@@ -104,5 +104,6 @@ The new knowledge must be **generalizable** — it applies beyond this specific 
 | `tofu-security` | `skills/tofu-security/SKILL.md` |
 | `security-reviewer` agent | `agents/security-reviewer.md` |
 | `parallel-review` | `skills/parallel-review/SKILL.md` |
+| `tmux` | `skills/tmux/SKILL.md` |
 
 If no skill was explicitly loaded but the work clearly belongs to one domain, use the appropriate file anyway.

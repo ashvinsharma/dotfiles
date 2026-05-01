@@ -123,22 +123,24 @@ alias rgi="rg -i"
 alias oc=opencode
 
 source $(brew --prefix)/share/zsh-autosuggestions/zsh-autosuggestions.zsh
-fpath+=("$(brew --prefix)/share/zsh/site-functions") 
+fpath+=("$(brew --prefix)/share/zsh/site-functions")
 source /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 [ -f ~/.kubectl_aliases ] && source \
-   <(cat ~/.kubectl_aliases | sed -r 's/(kubectl.*) --watch/watch \1/g')
+  <(cat ~/.kubectl_aliases | sed -r 's/(kubectl.*) --watch/watch \1/g')
+
+source <(fzf --zsh)
 
 # Added by GDK bootstrap
 eval "$(/opt/homebrew/bin/mise activate zsh)"
 
 # Custom function that clones the remote repository according
 # to the location of the remote repository.
-# gitlab.com/gitlab-org/gitlab will be cloned to 
+# gitlab.com/gitlab-org/gitlab will be cloned to
 # /Users/ashvin/workspace/gitlab-org/gitlab
 git-import() {
-    repo_url=$1
-    repo_path="$HOME/workspace/$(echo "$repo_url" | sed -E 's|git@[^:]+:||; s|https://[^/]+/||; s|\.git$||')"
-    git clone "$repo_url" "$repo_path" && cd "$repo_path"
+  repo_url=$1
+  repo_path="$HOME/workspace/$(echo "$repo_url" | sed -E 's|git@[^:]+:||; s|https://[^/]+/||; s|\.git$||')"
+  git clone "$repo_url" "$repo_path" && cd "$repo_path"
 }
 
 export DEVELOPER_DIR="$(xcode-select -p)"
@@ -177,7 +179,7 @@ export FZF_CTRL_T_OPTS="--preview 'bat --color=always --line-range :500 {}'"
 # Added by GitLab Knowledge Graph installer
 export PATH="$HOME/.local/bin:$PATH"
 
-export OLLAMA_NUM_PARALLEL=4 
+export OLLAMA_NUM_PARALLEL=4
 export OLLAMA_MAX_LOADED_MODELS=3
 export OLLAMA_FLASH_ATTENTION=1
 export OLLAMA_KV_CACHE_TYPE="q8_0"
@@ -186,9 +188,8 @@ export OLLAMA_CONTEXT_LENGTH=8192
 # bun completions
 [ -s "/Users/ashvin/.bun/_bun" ] && source "/Users/ashvin/.bun/_bun"
 
-
 # Rename tmux window on directory change
-chpwd() { [[ -n "$TMUX" ]] && ~/.config/tmux/smart-rename.sh "$PWD" }
+chpwd() { [[ -n "$TMUX" ]] && ~/.config/tmux/smart-rename.sh "$PWD"; }
 
 # glab account switcher — personal vs work based on git remote
 glab() {
@@ -196,7 +197,7 @@ glab() {
   remote="$(git remote get-url origin 2>/dev/null)" || true
 
   if [[ "$remote" == git@gitlab-personal:* ]]; then
-    GITLAB_TOKEN="$(security find-generic-password -a "$(whoami)" -s "opencode_gitlab_mcp_pat_key" -w 2>/dev/null)" \
+    GITLAB_TOKEN="$(security find-generic-password -a "$(whoami)" -s "gitlab_personal_pat" -w 2>/dev/null)" \
       command glab "$@"
   else
     command glab "$@"
@@ -208,8 +209,11 @@ stty -ixon 2>/dev/null
 # test
 
 loadenv() {
-    [[ -f "$1" ]] || { echo "file $1 not found"; return 1; }
-    set -a
-    source "$1"
-    set +a
+  [[ -f "$1" ]] || {
+    echo "file $1 not found"
+    return 1
+  }
+  set -a
+  source "$1"
+  set +a
 }

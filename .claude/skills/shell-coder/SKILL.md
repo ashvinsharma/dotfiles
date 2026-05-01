@@ -28,6 +28,22 @@ set -euo pipefail
 - Use `|| { echo "error message" >&2; exit 1; }` for custom error messages
 - Print errors to stderr: `echo "error: something failed" >&2`
 - Clean up temp files with `trap 'rm -f "$tmpfile"' EXIT`
+- **`VAR=$(failing_cmd)` never triggers `set -e`** — the assignment itself exits 0 regardless of the subshell's exit code; `VAR` is set to empty/stdout and execution continues silently. Guard explicitly:
+
+```bash
+# Bad: set -e does NOT fire here even if some_command fails
+OUTPUT=$(some_command)
+
+# Good: guard the result
+OUTPUT=$(some_command)
+[ -n "$OUTPUT" ] || { echo "some_command produced no output" >&2; exit 1; }
+
+# Or capture exit code directly
+if ! OUTPUT=$(some_command); then
+    echo "some_command failed" >&2
+    exit 1
+fi
+```
 
 ## Functions
 

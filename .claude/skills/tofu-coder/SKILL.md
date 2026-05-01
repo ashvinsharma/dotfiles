@@ -69,6 +69,36 @@ module/
 - Use `lifecycle { prevent_destroy = true }` for critical resources
 - Remote state with locking (S3 + DynamoDB, GCS, etc.) is required for team use
 
+### Provider Caching
+
+Set `TF_PLUGIN_CACHE_DIR` to a persistent directory so `tofu init` symlinks cached providers instead of downloading them on every run. Eliminates network I/O for subsequent inits; does not eliminate the init runtime itself.
+
+```bash
+export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+mkdir -p "$TF_PLUGIN_CACHE_DIR"
+```
+
+In CI, point this to a cached volume and set it in the job environment.
+
+### Local Provider Mirrors (air-gapped / CI reproducibility)
+
+Use a `.tofurc` file with a `provider_installation` block to redirect provider downloads to a local filesystem mirror. This avoids registry downloads entirely and makes CI hermetic.
+
+```hcl
+# .tofurc
+provider_installation {
+  filesystem_mirror {
+    path    = "/path/to/provider-mirror"
+    include = ["registry.terraform.io/*/*"]
+  }
+  direct {
+    exclude = ["registry.terraform.io/*/*"]
+  }
+}
+```
+
+Populate the mirror once with `tofu providers mirror /path/to/provider-mirror`.
+
 ## Commit Checklist
 
 Before proposing a commit:

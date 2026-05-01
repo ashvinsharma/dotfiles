@@ -28,7 +28,7 @@ REMOTE_URL="$(git remote get-url origin 2>/dev/null)" || true
 
 if [[ "$REMOTE_URL" == git@gitlab-personal:* ]]; then
   export GITLAB_PERSONAL_ACCESS_TOKEN
-  GITLAB_PERSONAL_ACCESS_TOKEN="$(get_secret "opencode_gitlab_mcp_pat_key")"
+  GITLAB_PERSONAL_ACCESS_TOKEN="$(get_secret "gitlab_personal_pat")"
   echo "Running personal GitLab for MCP server" >&2
   exec npx -y @zereight/mcp-gitlab
 fi

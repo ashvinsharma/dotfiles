@@ -208,6 +208,28 @@ assert.ErrorIs(t, err, ErrNotFound)
 ```
 Note: `assert.EqualError` is acceptable for errors that have no sentinel and where the message is the only contract.
 
+**REJECT** if a test structurally cannot fail — for example, asserting a condition that is always true given the function's implementation, or testing that `errors.New("a") != errors.New("b")`. Evergreen tests inflate coverage metrics, add noise, and drift silently.
+
+**REJECT** if a sort comparator uses integer subtraction (`return int(a - b)`) — overflows on 32-bit platforms and with values larger than `math.MaxInt32/2`. Use `cmp.Compare(a, b)` (Go 1.21+) or explicit `<`/`>` branches.
+
+```go
+// Bad: overflows for large int64 values
+sort.Slice(items, func(i, j int) bool {
+    return int(items[i].Timestamp - items[j].Timestamp) < 0
+})
+
+// Good
+sort.Slice(items, func(i, j int) bool {
+    return cmp.Compare(items[i].Timestamp, items[j].Timestamp) < 0
+})
+```
+
+**COMMENT** if a test helper accepts `*testing.T` but has no need for `t.Run()` or `t.Parallel()` — it should accept `testing.TB` to work in benchmarks and fuzz tests too.
+
+**COMMENT** if `t.Fatal()` is called to gate a test on an environmental prerequisite (missing credentials, specific OS, non-root). Use `t.Skip()` — `t.Fatal` marks the test failed; `t.Skip` marks it inapplicable.
+
+**COMMENT** if a production constructor exposes a `WithFailingXxx()` option that exists solely to trigger error paths in tests. Reach error paths through real failure modes (mock returning error via its interface, invalid input, `t.Setenv` with missing config).
+
 **COMMENT** if table-driven tests would clearly reduce duplication but aren't used. Don't force it when cases have meaningfully different setup or branching.
 
 **COMMENT** if test names don't describe the scenario. Either `TestFunctionName_Scenario` or descriptive `t.Run("when input is empty", ...)` strings are fine — be consistent with the codebase.
