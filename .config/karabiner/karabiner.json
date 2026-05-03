@@ -85,6 +85,27 @@
             "complex_modifications": {
                 "rules": [
                     {
+                        "description": "right_option → fn on built-in keyboard only",
+                        "manipulators": [
+                            {
+                                "type": "basic",
+                                "from": {
+                                    "key_code": "right_option",
+                                    "modifiers": { "optional": ["any"] }
+                                },
+                                "to": [{ "key_code": "fn" }],
+                                "conditions": [
+                                    {
+                                        "type": "device_if",
+                                        "identifiers": [
+                                            { "is_built_in_keyboard": true }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
                         "description": "Caps Lock: tap = Escape, hold = Left Control (for Ctrl+S tmux prefix)",
                         "manipulators": [
                             {

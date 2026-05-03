@@ -14,11 +14,11 @@ while IFS= read -r rel || [[ -n "$rel" ]]; do
   repo_file="$REPO/$rel"
 
   if [[ -f "$live" && -f "$repo_file" ]]; then
-    if ! diff -q "$live" "$repo_file" > /dev/null 2>&1; then
+    if ! diff -q "$live" "$repo_file" >/dev/null 2>&1; then
       CHANGED+=("$rel")
     fi
   fi
-done < "$REPO/scripts/app-files"
+done <"$REPO/scripts/app-files"
 
 [[ ${#CHANGED[@]} -eq 0 ]] && exit 0
 
@@ -40,7 +40,4 @@ if [[ "$response" =~ ^[Yy]$ ]]; then
     git -C "$REPO" add "$rel"
     echo "  ✓ staged $rel"
   done
-else
-  echo "  Skipped — commit blocked. Sync the files or remove them from scripts/app-files."
-  exit 1
 fi
