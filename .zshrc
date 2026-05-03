@@ -217,3 +217,5 @@ loadenv() {
   source "$1"
   set +a
 }
+
+export GPG_TTY=$(tty)
