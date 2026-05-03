@@ -1,3 +1,8 @@
 [user]
 	email = ashvinsharma97@gmail.com
 	name = Ashvin Sharma
+	signingkey = 954D432C15900F220D9B35081C5222EA47EFA648!
+[commit]
+	gpgsign = true
+[tag]
+	gpgSign = true

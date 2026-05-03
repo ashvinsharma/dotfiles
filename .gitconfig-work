@@ -1,0 +1,8 @@
+[user]
+	email = ashsharma@gitlab.com
+	name = Ashvin Sharma
+	signingkey = 9D6305EE2A72F8765D128E04597EBF558AB76D5C!
+[commit]
+	gpgsign = true
+[tag]
+	gpgSign = true
