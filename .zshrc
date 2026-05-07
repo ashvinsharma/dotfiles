@@ -81,7 +81,7 @@ zstyle ':completion:*:warnings' format '%BSorry, no matches for: %d%b'
 # Custom plugins may be added to $ZSH_CUSTOM/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-plugins=(git fzf fzf-tab zoxide)
+plugins=(git fzf-tab zoxide)
 
 source $ZSH/oh-my-zsh.sh
 eval "$(starship init zsh)"
@@ -138,9 +138,10 @@ eval "$(/opt/homebrew/bin/mise activate zsh)"
 # gitlab.com/gitlab-org/gitlab will be cloned to
 # /Users/ashvin/workspace/gitlab-org/gitlab
 git-import() {
-  repo_url=$1
-  repo_path="$HOME/workspace/$(echo "$repo_url" | sed -E 's|git@[^:]+:||; s|https://[^/]+/||; s|\.git$||')"
-  git clone "$repo_url" "$repo_path" && cd "$repo_path"
+  local url="$1"
+  [[ "$url" == https://* ]] && url=$(echo "$url" | sed -E 's|https://([^/]+)/|git@\1:|')
+  local repo_path="$HOME/workspace/$(echo "$url" | sed -E 's|git@[^:]+:||; s|\.git$||')"
+  git clone "$url" "$repo_path" && cd "$repo_path"
 }
 
 export DEVELOPER_DIR="$(xcode-select -p)"
