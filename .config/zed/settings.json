@@ -7,9 +7,9 @@
 // custom settings, run `zed: open default settings` from the
 // command palette (cmd-shift-p / ctrl-shift-p)
 {
-  "buffer_line_height": "comfortable",
+  "buffer_line_height": "standard",
   "terminal": {
-    
+    "font_size": 14.0
   },
   "git_panel": {
     "tree_view": false
@@ -34,7 +34,7 @@
     }
   },
   "ui_font_size": 15.0,
-  "buffer_font_size": 15.0,
+  "buffer_font_size": 14.0,
   "theme": {
     "mode": "system",
     "light": "One Dark",
