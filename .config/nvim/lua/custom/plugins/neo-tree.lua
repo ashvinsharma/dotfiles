@@ -17,8 +17,8 @@ return {
   },
   lazy = true,
   keys = {
-    { '<C-1>', '<cmd>Neotree toggle<CR>', desc = 'NeoTree toggle' },
-    { '<C-0>', '<cmd>Neotree toggle git_status<CR>', desc = 'NeoTree toggle git changes pane' },
+    { '<leader>e', '<cmd>Neotree toggle<CR>', desc = 'NeoTree toggle' },
+    { '<leader>ge', '<cmd>Neotree toggle git_status<CR>', desc = 'NeoTree toggle git changes pane' },
   },
   cmd = 'Neotree',
   ---@module "neo-tree"
