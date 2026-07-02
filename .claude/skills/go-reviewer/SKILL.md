@@ -505,6 +505,54 @@ func (n *Node) IsLeaf() bool {
 
 ---
 
+## Coverage Check (final step — always run after review)
+
+After completing the review, run coverage on only the packages touched by the branch diff — not the entire codebase.
+
+```bash
+# 1. Find changed packages (deduplicated)
+PKGS=$(git diff --name-only origin/master \
+  | grep '\.go$' \
+  | grep -v '_test\.go$' \
+  | xargs -I{} dirname {} \
+  | sort -u \
+  | sed 's|^|./|' \
+  | tr '\n' ' ')
+
+# 2. Run tests with coverage on those packages only
+go test -coverprofile=coverage.out -covermode=atomic $PKGS 2>&1
+
+# 3. Show per-function coverage
+go tool cover -func=coverage.out
+```
+
+Then cross-reference `coverage.out` with the diff to identify uncovered lines in **new or changed code specifically**:
+
+```bash
+# Show uncovered lines in the diff
+git diff origin/master -- $(git diff --name-only origin/master | grep '\.go$' | tr '\n' ' ') \
+  | grep '^+' | grep -v '^+++' \
+  | grep -n '.'  # line numbers for cross-referencing with coverage.out
+```
+
+**Report format:**
+
+```
+COVERAGE — changed packages
+  internal/modules/bucket   87.3%  (3 uncovered lines in new code)
+  internal/modules/ec2      94.1%  (0 uncovered lines in new code)
+  internal/api              91.2%  (1 uncovered line in new code)
+
+Uncovered new lines:
+  internal/modules/bucket/service_impl.go:134  case "BucketNotEmpty"
+  internal/modules/bucket/service_impl.go:138  case "NoSuchBucket"
+  internal/modules/bucket/service_impl.go:142  default branch
+```
+
+**Flag as REJECT** any new production code path (non-test file) that is completely uncovered. Flag as COMMENT if overall coverage of a changed package drops below its pre-MR level (use `git stash`, run coverage on master, compare).
+
+---
+
 ## Authoritative Sources to Cite in Reviews
 
 - [Effective Go](https://go.dev/doc/effective_go)

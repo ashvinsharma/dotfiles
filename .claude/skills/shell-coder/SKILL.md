@@ -58,6 +58,33 @@ fi
 - Use `printf` instead of `echo` for reliable output formatting
 - Avoid bash-isms if POSIX sh compatibility is required — check the shebang
 
+## Git: always commit shell scripts with executable bit
+
+Shell scripts committed without `+x` will fail with "Permission denied" after
+`git reset --hard` or a fresh clone — git restores the mode it stored, not what
+was set manually with `chmod`.
+
+Always set the executable bit in the index before committing:
+
+```bash
+git update-index --chmod=+x path/to/script.sh
+```
+
+Verify before committing:
+```bash
+git ls-files --stage path/to/script.sh   # must show 100755, not 100644
+```
+
+This applies to every shell script, git hook, and any other executable file
+added to the repo — including files without a `.sh` extension (e.g.
+`reference-transaction`, `post-commit`).
+
+**`git add` reads permissions from disk, not from the index.** Write and Edit
+tools create/modify files at 644 on disk. If you run `git update-index --chmod=+x`
+but then run `git add` again on the same file, git overwrites the index entry
+with the disk's 644. Always run `git update-index --chmod=+x` AFTER any
+`git add`, immediately before committing.
+
 ## Commit Checklist
 
 Before proposing a commit:
@@ -65,3 +92,4 @@ Before proposing a commit:
 2. Script runs with `bash -n <script>` (syntax check) successfully
 3. All variables are quoted
 4. `set -euo pipefail` is present
+5. Executable bit set in git index (`git ls-files --stage` shows `100755`)

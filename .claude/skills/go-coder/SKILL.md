@@ -478,6 +478,59 @@ go tool covdata textfmt -i merged_coverage -o coverage.txt
 
 ---
 
+## Worktree commits with mise (orchestration gotcha)
+
+When squashing TDD commits from a git worktree using the **main agent's shell** (not the sub-agent that wrote the code), `git commit` must be wrapped with `mise exec --` so pre-commit hooks inherit the correct Go version:
+
+```bash
+cd <worktree-path> && mise exec -- git commit -m "..."
+```
+
+Without this, hooks that run `task test`, `task mod-tidy`, or `task lint:todo` will fail with `go.mod requires go >= X.Y.Z (running go A.B.C; GOTOOLCHAIN=local)` because the orchestrator's shell PATH uses system Go, not the mise-managed version. The hooks pass cleanly inside the sub-agent (which runs in a mise-activated context) but fail when invoked by the orchestrator.
+
+Also run `mise trust <worktree-path>/.mise.toml` before any task or hook invocation in a new worktree — without this, mise refuses to load tool versions from the worktree's config.
+
+---
+
+## Indent Error Flow (Avoid if-else After Error Check)
+
+Per [Go CodeReviewComments — Indent Error Flow](https://github.com/golang/go/wiki/CodeReviewComments#indent-error-flow): keep the normal code path at minimal indentation. Invert error conditions and return early — never use an `else` block after a branch that returns.
+
+```go
+// Bad: else block after a return is unnecessary indentation
+if errors.As(err, &apiErr) {
+    switch apiErr.ErrorCode() { ... }
+} else {
+    return fmt.Errorf("call failed: %w", err)
+}
+
+// Good: invert, early return, switch at top level
+if !errors.As(err, &apiErr) {
+    return fmt.Errorf("call failed: %w", err)
+}
+switch apiErr.ErrorCode() { ... }
+```
+
+This also applies to any `if condition { ... } else { return/continue/break }` — the `else` is always redundant when the `if` body terminates.
+
+---
+
+## Always Wrap Errors With Context
+
+Always wrap errors with `fmt.Errorf("operation description: %w", err)`. Never return bare `err` — it removes the call site from the error chain and makes grep-based debugging harder.
+
+```go
+// Bad: bare return — loses call site context
+return nil, err
+
+// Good: wrap with minimal context
+return nil, fmt.Errorf("query user by id: %w", err)
+```
+
+This applies even in thin adapters over GORM or other libraries. The one line cost is worth it.
+
+---
+
 ## Authoritative Sources
 
 - [Effective Go](https://go.dev/doc/effective_go)
