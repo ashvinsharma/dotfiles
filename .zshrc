@@ -207,7 +207,33 @@ glab() {
 
 # Disable Ctrl+S flow control (XOFF) so it can be used as tmux prefix
 stty -ixon 2>/dev/null
-# test
+
+incognito() {
+  local tmpdir
+  tmpdir=$(mktemp -d)
+
+  # Runs before any rc file — registers a one-shot precmd hook
+  cat > "$tmpdir/.zshenv" << 'ZSHENV'
+autoload -Uz add-zsh-hook
+function _incognito_init() {
+  add-zsh-hook -d precmd _incognito_init
+  add-zsh-hook -d precmd shell_session_history_check 2>/dev/null
+  add-zsh-hook -d zshexit shell_session_update 2>/dev/null
+  unset HISTFILE
+  HISTSIZE=0
+  SAVEHIST=0
+  unsetopt SHARE_HISTORY INC_APPEND_HISTORY INC_APPEND_HISTORY_TIME APPEND_HISTORY EXTENDED_HISTORY 2>/dev/null
+  fc -p /dev/null 0 0
+}
+add-zsh-hook precmd _incognito_init
+ZSHENV
+
+  # .zshrc just loads real config — aliases, functions, completions all intact
+  printf 'source "%s/.zshrc"\n' "$HOME" > "$tmpdir/.zshrc"
+
+  ZDOTDIR="$tmpdir" SHELL_SESSIONS_DISABLE=1 zsh
+  rm -rf "$tmpdir"
+}
 
 loadenv() {
   [[ -f "$1" ]] || {
