@@ -217,38 +217,7 @@ vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper win
 -- vim.keymap.set("n", "<C-S-j>", "<C-w>J", { desc = "Move window to the lower" })
 -- vim.keymap.set("n", "<C-S-k>", "<C-w>K", { desc = "Move window to the upper" })
 
-vim.keymap.set('n', '<leader>cf', function() -- Get the current buffer's filename (tail only)
-  local filename = vim.fn.expand '%:t'
-  vim.fn.setreg('+', filename) -- Copy to system clipboard
-  vim.notify('Copied filename: ' .. filename) -- Notify the user
-end, { desc = '[C]opy [F]ilename' })
-vim.keymap.set('n', '<leader>ca', function()
-  local file_path = vim.fn.expand '%:p'
-  vim.fn.setreg('+', file_path)
-  vim.notify('Copied absolute path: ' .. file_path)
-end, { desc = '[C]opy [A]bsolute file path' })
-vim.keymap.set('n', '<leader>cr', function()
-  -- 1. Get the Neo-tree state for the filesystem source
-  local manager = require 'neo-tree.sources.manager'
-  local state = manager.get_state 'filesystem'
-
-  -- 2. Get the currently selected node in the tree
-  local node = state.tree:get_node()
-
-  if node then
-    -- 3. Get the absolute path from the node
-    local absolute_path = node.path
-
-    -- 4. Convert to relative path based on the current working directory (cwd)
-    local relative_path = vim.fn.fnamemodify(absolute_path, ':.')
-
-    -- 5. Copy to clipboard and notify
-    vim.fn.setreg('+', relative_path)
-    vim.notify('Copied relative path: ' .. relative_path)
-  else
-    vim.notify('No file selected in Neo-tree', vim.log.levels.WARN)
-  end
-end, { desc = '[C]opy [R]elative path from Neo-tree' })
+require 'custom.settings.copy'
 
 -- session options
 vim.o.sessionoptions = 'blank,buffers,curdir,folds,help,tabpages,winsize,winpos,terminal,localoptions'
