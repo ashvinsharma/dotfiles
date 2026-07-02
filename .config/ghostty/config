@@ -5,3 +5,36 @@ font-thicken = true
 window-padding-x = 15
 window-padding-y = 5
 window-padding-color = extend
+
+# Dark gray theme (ANSI palette below stays colorful for readability)
+background = 1a1a1a
+foreground = d8d8d8
+cursor-color = d8d8d8
+cursor-text = 1a1a1a
+selection-background = 3a3a3a
+selection-foreground = d8d8d8
+
+palette = 0=#282a36
+palette = 1=#f37f97
+palette = 2=#5adecd
+palette = 3=#f2a272
+palette = 4=#8897f4
+palette = 5=#c574dd
+palette = 6=#79e6f3
+palette = 7=#fdfdfd
+palette = 8=#414458
+palette = 9=#ff4971
+palette = 10=#18e3c8
+palette = 11=#ff8037
+palette = 12=#556fff
+palette = 13=#b043d1
+palette = 14=#3fdcee
+palette = 15=#bebec1
+
+background-opacity = 0.9
+background-blur = 10
+cursor-style = block
+cursor-style-blink = false
+bold-color = bright
+macos-option-as-alt = left
+scrollback-limit = 100000000
