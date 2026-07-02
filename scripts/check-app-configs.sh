@@ -31,8 +31,20 @@ for rel in "${CHANGED[@]}"; do
 done
 
 echo ""
-printf "Copy to repo and stage for this commit? [y/N] "
-read -r response </dev/tty
+
+response=""
+if [[ -n "${CHECK_APP_CONFIGS_SYNC:-}" ]]; then
+  response="$CHECK_APP_CONFIGS_SYNC"
+  echo "Copy to repo and stage for this commit? [y/N] $response (from \$CHECK_APP_CONFIGS_SYNC)"
+elif printf "Copy to repo and stage for this commit? [y/N] " && read -r response 2>/dev/null </dev/tty; then
+  :
+else
+  response=""
+  echo "N (no interactive terminal available)"
+  echo ""
+  echo "Re-run 'make check' from an interactive terminal to sync, or set"
+  echo "CHECK_APP_CONFIGS_SYNC=y (e.g. 'CHECK_APP_CONFIGS_SYNC=y git commit ...') to sync non-interactively."
+fi
 
 if [[ "$response" =~ ^[Yy]$ ]]; then
   for rel in "${CHANGED[@]}"; do
