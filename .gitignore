@@ -94,3 +94,6 @@
 
 # Claude skill runtime deps
 .claude/skills/pretty-mermaid/node_modules/
+
+# Serena MCP tool — per-project bootstrap/cache metadata, not a dotfile
+.serena/
