@@ -228,16 +228,25 @@ return {
           -- pop our own hover history instead; a no-op at the top of the
           -- chain rather than falling through to that broken behavior.
           vim.keymap.set('n', '<C-o>', function()
+            local cur_win = vim.api.nvim_get_current_win()
             if #history == 0 then
+              -- Nothing further back in the doc chain -- "back" from here
+              -- means leaving the hover entirely, same as any other way of
+              -- closing it, not a silent no-op.
+              if vim.api.nvim_win_is_valid(cur_win) then
+                vim.api.nvim_win_close(cur_win, true)
+              end
+              if vim.api.nvim_win_is_valid(source_winid) then
+                vim.api.nvim_set_current_win(source_winid)
+              end
               return
             end
             local prev = table.remove(history)
-            local cur_win = vim.api.nvim_get_current_win()
             if vim.api.nvim_win_is_valid(cur_win) then
               vim.api.nvim_win_close(cur_win, true)
             end
             open_md_popup(prev.lines, prev.client, prev.source_winid, history)
-          end, { buffer = hover_bufnr, nowait = true, desc = 'Back to previous hover doc' })
+          end, { buffer = hover_bufnr, nowait = true, desc = 'Back to previous hover doc (or close if none)' })
 
           vim.keymap.set('n', '<F1>', function()
             local word = vim.fn.expand '<cword>'
