@@ -71,10 +71,12 @@ return {
           end
         end
 
-        -- Forward-declared: show_hover_at and setup_nested_hover call each
-        -- other (a hover popup can trigger another nested hover popup), so
-        -- neither can be a plain `local function` defined only at its own
-        -- use site.
+        -- Forward-declared: open_md_popup, show_hover_at, and
+        -- setup_nested_hover call each other (a hover popup can trigger
+        -- another nested hover popup, and drilling back out reopens a
+        -- previous one), so none of them can be a plain `local function`
+        -- defined only at its own use site.
+        local open_md_popup
         local show_hover_at
         local setup_nested_hover
 
@@ -101,6 +103,38 @@ return {
           })
         end
 
+        -- Open a hover float for a given set of already-rendered markdown
+        -- lines, focused and wired up for nested navigation. Shared by the
+        -- initial nested-hover request (show_hover_at) and by <C-o> "back"
+        -- navigation (setup_nested_hover), which reopens a previous level
+        -- from its cached lines rather than re-requesting it from the LSP.
+        ---@param lines string[]
+        ---@param client vim.lsp.Client
+        ---@param source_winid integer the real editing window the hover chain started from --
+        --- open_floating_preview sizes/positions itself using the *current*
+        --- window's winheight()/winline()/wincol(), so calling it while a
+        --- nested hover popup is current would clamp the new popup to fit
+        --- inside that tiny float. nvim_win_call fools it into measuring
+        --- against the real window instead, without changing focus.
+        ---@param history table[] stack of popups drilled past on the way here, each { lines, client, source_winid } -- see setup_nested_hover
+        open_md_popup = function(lines, client, source_winid, history)
+          local hover_bufnr, winid
+          local function open()
+            hover_bufnr, winid = vim.lsp.util.open_floating_preview(lines, 'markdown', {
+              max_width = 200,
+              border = 'rounded',
+            })
+          end
+          if vim.api.nvim_win_is_valid(source_winid) then
+            vim.api.nvim_win_call(source_winid, open)
+          else
+            open()
+          end
+          vim.api.nvim_set_current_win(winid)
+          close_float_on_leave(winid, hover_bufnr)
+          setup_nested_hover(hover_bufnr, client, source_winid, history)
+        end
+
         -- Request hover at an arbitrary (uri, position) -- not necessarily
         -- where the cursor actually is -- and open it focused, same as the
         -- normal <F1> hover below. Used both for the initial hover and for
@@ -108,13 +142,9 @@ return {
         ---@param client vim.lsp.Client
         ---@param uri string
         ---@param position lsp.Position
-        ---@param source_winid integer the real editing window the hover chain started from --
-        --- open_floating_preview sizes/positions itself using the *current*
-        --- window's winheight()/winline()/wincol(), so calling it while a
-        --- nested hover popup is current would clamp the new popup to fit
-        --- inside that tiny float. nvim_win_call fools it into measuring
-        --- against the real window instead, without changing focus.
-        show_hover_at = function(client, uri, position, source_winid)
+        ---@param source_winid integer see open_md_popup
+        ---@param history table[] see setup_nested_hover
+        show_hover_at = function(client, uri, position, source_winid, history)
           client:request(vim.lsp.protocol.Methods.textDocument_hover, {
             textDocument = { uri = uri },
             position = position,
@@ -128,21 +158,7 @@ return {
               vim.notify('No hover info available', vim.log.levels.INFO)
               return
             end
-            local hover_bufnr, winid
-            local function open()
-              hover_bufnr, winid = vim.lsp.util.open_floating_preview(md_lines, 'markdown', {
-                max_width = 200,
-                border = 'rounded',
-              })
-            end
-            if vim.api.nvim_win_is_valid(source_winid) then
-              vim.api.nvim_win_call(source_winid, open)
-            else
-              open()
-            end
-            vim.api.nvim_set_current_win(winid)
-            close_float_on_leave(winid, hover_bufnr)
-            setup_nested_hover(hover_bufnr, client, source_winid)
+            open_md_popup(md_lines, client, source_winid, history)
           end)
         end
 
@@ -156,7 +172,27 @@ return {
         ---@param hover_bufnr integer
         ---@param client vim.lsp.Client
         ---@param source_winid integer threaded through to show_hover_at so any depth of nesting still sizes against the real window
-        setup_nested_hover = function(hover_bufnr, client, source_winid)
+        ---@param history table[] stack of popups drilled past, each { lines, client, source_winid }, oldest first -- <C-o> pops the most recent one and reopens it from its cached lines
+        setup_nested_hover = function(hover_bufnr, client, source_winid, history)
+          -- The floating window inherits source_winid's jumplist on
+          -- creation (nvim_open_win behaves like a split for this), so
+          -- Vim's native <C-o> would happily jump to a real file location
+          -- from *that* jumplist and load it straight into this floating
+          -- window -- not "back to the previous doc" at all. Override it to
+          -- pop our own hover history instead; a no-op at the top of the
+          -- chain rather than falling through to that broken behavior.
+          vim.keymap.set('n', '<C-o>', function()
+            if #history == 0 then
+              return
+            end
+            local prev = table.remove(history)
+            local cur_win = vim.api.nvim_get_current_win()
+            if vim.api.nvim_win_is_valid(cur_win) then
+              vim.api.nvim_win_close(cur_win, true)
+            end
+            open_md_popup(prev.lines, prev.client, prev.source_winid, history)
+          end, { buffer = hover_bufnr, nowait = true, desc = 'Back to previous hover doc' })
+
           vim.keymap.set('n', '<F1>', function()
             local word = vim.fn.expand '<cword>'
             if word == '' then
@@ -173,15 +209,25 @@ return {
               end
               local sym = results[1]
               local loc = sym.location
+
+              local function drill_to(uri, position)
+                table.insert(history, {
+                  lines = vim.api.nvim_buf_get_lines(hover_bufnr, 0, -1, false),
+                  client = client,
+                  source_winid = source_winid,
+                })
+                show_hover_at(client, uri, position, source_winid, history)
+              end
+
               if loc.range then
-                show_hover_at(client, loc.uri, loc.range.start, source_winid)
+                drill_to(loc.uri, loc.range.start)
               elseif client_supports_method(client, vim.lsp.protocol.Methods.workspaceSymbol_resolve) then
                 client:request(vim.lsp.protocol.Methods.workspaceSymbol_resolve, sym, function(rerr, resolved)
                   if rerr or not resolved or not resolved.location.range then
                     vim.notify('Could not resolve location for "' .. word .. '"', vim.log.levels.INFO)
                     return
                   end
-                  show_hover_at(client, resolved.location.uri, resolved.location.range.start, source_winid)
+                  drill_to(resolved.location.uri, resolved.location.range.start)
                 end)
               else
                 vim.notify('Symbol location has no range and server cannot resolve it', vim.log.levels.INFO)
@@ -218,7 +264,7 @@ return {
               local hover_bufnr = vim.api.nvim_win_get_buf(win)
               close_float_on_leave(win, hover_bufnr)
               if clients[1] then
-                setup_nested_hover(hover_bufnr, clients[1], source_winid)
+                setup_nested_hover(hover_bufnr, clients[1], source_winid, {})
               end
             elseif tries < 10 then
               vim.defer_fn(try_focus, 30)
