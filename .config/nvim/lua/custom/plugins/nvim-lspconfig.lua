@@ -103,6 +103,40 @@ return {
           })
         end
 
+        -- open_floating_preview anchors horizontally at the cursor's screen
+        -- column, extending right until it would overflow (then flipping to
+        -- extend left instead). That corner-flip is driven entirely by
+        -- content width, so a short doc sits snugly near the cursor while a
+        -- long one for the very same cursor position can flip sides and get
+        -- clamped flush against the host window's edge -- a jarring jump
+        -- between hovers. Center it on the host window's width instead, for
+        -- equal margins on both sides no matter how wide the content is.
+        --
+        -- Left untouched: the *vertical* half of Neovim's placement (row and
+        -- the N/S half of anchor). Its anchor_bias='auto' already picks
+        -- whichever of above/below the cursor's line has more real estate,
+        -- using only the cursor's position -- not content height -- so it's
+        -- already stable across different doc sizes and needs no fixing.
+        ---@param winid integer floating window to recenter horizontally
+        local function center_float_horizontally(winid)
+          local cfg = vim.api.nvim_win_get_config(winid)
+          if cfg.relative ~= 'win' then
+            return
+          end
+          local host_width = vim.api.nvim_win_get_width(cfg.win)
+          local col = math.max(0, math.floor((host_width - cfg.width) / 2))
+          local vert_anchor = (cfg.anchor or 'NW'):sub(1, 1)
+          vim.api.nvim_win_set_config(winid, {
+            relative = 'win',
+            win = cfg.win,
+            row = cfg.row,
+            col = col,
+            width = cfg.width,
+            height = cfg.height,
+            anchor = vert_anchor .. 'W',
+          })
+        end
+
         -- Open a hover float for a given set of already-rendered markdown
         -- lines, focused and wired up for nested navigation. Shared by the
         -- initial nested-hover request (show_hover_at) and by <C-o> "back"
@@ -130,6 +164,7 @@ return {
           else
             open()
           end
+          center_float_horizontally(winid)
           vim.api.nvim_set_current_win(winid)
           close_float_on_leave(winid, hover_bufnr)
           setup_nested_hover(hover_bufnr, client, source_winid, history)
@@ -260,6 +295,7 @@ return {
             tries = tries + 1
             local win = vim.b[bufnr].lsp_floating_preview
             if win and vim.api.nvim_win_is_valid(win) then
+              center_float_horizontally(win)
               vim.api.nvim_set_current_win(win)
               local hover_bufnr = vim.api.nvim_win_get_buf(win)
               close_float_on_leave(win, hover_bufnr)
