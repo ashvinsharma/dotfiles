@@ -338,11 +338,15 @@ return {
         map('gra', vim.lsp.buf.code_action, '[G]oto Code [A]ction', { 'n', 'x' })
 
         -- Find references for the word under your cursor.
-        map('grr', require('telescope.builtin').lsp_references, '[G]oto [R]eferences')
+        -- fzf-lua, not Telescope: reference lists in a large codebase can
+        -- run into the hundreds, right where Telescope's EntryManager
+        -- overhead shows up most.
+        map('grr', require('fzf-lua').lsp_references, '[G]oto [R]eferences')
 
         -- Jump to the implementation of the word under your cursor.
         --  Useful when your language has ways of declaring types without an actual implementation.
-        map('gri', require('telescope.builtin').lsp_implementations, '[G]oto [I]mplementation')
+        -- fzf-lua for the same reason as references above.
+        map('gri', require('fzf-lua').lsp_implementations, '[G]oto [I]mplementation')
 
         -- Jump to the definition of the word under your cursor.
         --  This is where a variable was first declared, or where a function is defined, etc.
@@ -359,7 +363,9 @@ return {
 
         -- Fuzzy find all the symbols in your current workspace.
         --  Similar to document symbols, except searches over your entire project.
-        map('gW', require('telescope.builtin').lsp_dynamic_workspace_symbols, 'Open Workspace Symbols')
+        -- fzf-lua: explicitly workspace-wide, the LSP picker most likely to
+        -- be huge in a large codebase.
+        map('gW', require('fzf-lua').lsp_live_workspace_symbols, 'Open Workspace Symbols')
 
         -- Jump to the type of the word under your cursor.
         --  Useful when you're not sure what type a variable is and you want to see
