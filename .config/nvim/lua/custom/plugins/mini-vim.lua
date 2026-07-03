@@ -31,6 +31,37 @@ return { -- Collection of various small independent plugins/modules
     --  and try some other statusline plugin
     local statusline = require 'mini.statusline'
 
+    -- Filename relative to the buffer's git project root (nearest upward
+    -- .git, so submodules/worktrees resolve to their own root) instead of
+    -- cwd-relative, since cwd isn't always the project root. Falls back to
+    -- the absolute path outside of a git repo. Root lookup is
+    -- filesystem-only (no git subprocess per redraw) and cached per buffer
+    -- since it can't change for an existing buffer.
+    local function relative_to_git_root(bufnr)
+      local name = vim.api.nvim_buf_get_name(bufnr)
+      if name == '' then
+        return '[No Name]'
+      end
+      if vim.b[bufnr].statusline_git_root == nil then
+        local dot_git = vim.fs.find('.git', { path = vim.fs.dirname(name), upward = true })[1]
+        vim.b[bufnr].statusline_git_root = dot_git and vim.fs.dirname(dot_git) or false
+      end
+      local root = vim.b[bufnr].statusline_git_root
+      return root and (vim.fs.relpath(root, name) or name) or name
+    end
+
+    -- Current line / total lines as a percentage, distinct from location's
+    -- line:col -- how far down the buffer the cursor is, not where on the
+    -- line. mini.statusline's returned string gets rescanned by Vim's
+    -- statusline engine for %-codes (that's how it switches highlight
+    -- groups inline), so a literal "%" must be doubled here or Vim
+    -- swallows it instead of displaying it.
+    local function scroll_percent()
+      local total_lines = vim.api.nvim_buf_line_count(0)
+      local cur_line = vim.api.nvim_win_get_cursor(0)[1]
+      return string.format('%d%%%%', math.floor(cur_line / total_lines * 100))
+    end
+
     -- set use_icons to true if you have a Nerd Font
     statusline.setup {
       use_icons = vim.g.have_nerd_font,
@@ -39,14 +70,10 @@ return { -- Collection of various small independent plugins/modules
           local mode, mode_hl = MiniStatusline.section_mode { trunc_width = 120 }
           local git = MiniStatusline.section_git { trunc_width = 40 }
           local lsp = MiniStatusline.section_lsp { trunc_width = 75 }
-          -- trunc_width = math.huge forces these two into their own
-          -- built-in "truncated" short forms: relative path only (no full
-          -- absolute path), and icon+filetype only (no encoding/fileformat/
-          -- size, which are only useful when non-default and were always-on
-          -- noise otherwise).
-          local filename = MiniStatusline.section_filename { trunc_width = math.huge }
+          local filename = relative_to_git_root(0)
           local location = MiniStatusline.section_location { trunc_width = 75 }
           local search = MiniStatusline.section_searchcount { trunc_width = 75 }
+          local scroll = scroll_percent()
 
           local recording_register = vim.fn.reg_recording()
           local recording = recording_register ~= '' and ('REC @' .. recording_register) or ''
@@ -113,15 +140,20 @@ return { -- Collection of various small independent plugins/modules
             { hl = 'MiniStatuslineDevinfo', strings = { git } },
           }
           vim.list_extend(groups, diff_groups)
+          vim.list_extend(groups, {
+            '%<',
+            { hl = 'MiniStatuslineFilename', strings = { filename } },
+          })
+          -- Everything past here is right-aligned: diagnostic counts, LSP
+          -- clients, then the filetype devicon, then cursor location and
+          -- scroll %.
+          vim.list_extend(groups, { '%=' })
           vim.list_extend(groups, diag_groups)
           vim.list_extend(groups, {
             { hl = 'MiniStatuslineDevinfo', strings = { lsp } },
-            '%<',
-            { hl = 'MiniStatuslineFilename', strings = { filename } },
-            '%=',
             { hl = file_icon_hl or 'MiniStatuslineFileinfo', strings = { file_icon } },
             { hl = 'MiniStatuslineFileinfo', strings = { vim.bo.filetype } },
-            { hl = mode_hl, strings = { search, location } },
+            { hl = mode_hl, strings = { search, location, scroll } },
           })
 
           return MiniStatusline.combine_groups(groups)

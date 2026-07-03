@@ -15,12 +15,13 @@ return {
       handle = {
         blend = 0,
       },
-      -- Every mark uses the same solid full-block glyph (max size/opacity),
-      -- relying entirely on color to distinguish them -- so no two mark
-      -- colors may collide. GitSignsDelete (#ee5396) is otherwise identical
-      -- to DiagnosticVirtualTextError under tokyo-night; override just the
-      -- scrollbar's GitDelete color (doesn't touch the real GitSignsDelete
-      -- highlight used elsewhere) so it's distinct from Error.
+      -- Every mark keeps its real highlight color (DiagnosticVirtualText*/
+      -- GitSigns*) unmodified, so the scrollbar always matches the actual
+      -- gutter/virtual-text colors elsewhere -- a mismatched color here
+      -- would be more confusing than helpful. Solid full-block glyph for
+      -- max size/opacity. GitSignsDelete (#ee5396) happens to be identical
+      -- to DiagnosticVirtualTextError under tokyo-night, so that one pair
+      -- gets a distinct shape instead of a fake color to tell them apart.
       marks = {
         Error = { text = { '█' } },
         Warn = { text = { '█' } },
@@ -28,7 +29,7 @@ return {
         Hint = { text = { '█' } },
         GitAdd = { text = '█' },
         GitChange = { text = '█' },
-        GitDelete = { text = '█', color = '#ff9e64' },
+        GitDelete = { text = '▄' },
       },
     }
     require('scrollbar.handlers.gitsigns').setup()
