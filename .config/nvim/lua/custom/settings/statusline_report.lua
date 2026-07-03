@@ -98,13 +98,20 @@ local function build_lines(bufnr, winid)
     table.insert(label_spans, { line = #lines - 1, col_end = #label + 1, hl = hl or 'Comment' })
   end
 
+  -- Icon *and* the word it stands for, e.g. " Git" or "󰅚 Error" -- the icon
+  -- alone is what correlates visually with the statusline, but a bare icon
+  -- with no word defeats the point of this being the verbose view.
+  local function iconword(icon, word)
+    return icon ~= '' and (icon .. ' ' .. word) or word
+  end
+
   add('Mode', mode_names[vim.api.nvim_get_mode().mode] or vim.api.nvim_get_mode().mode)
 
   local rec = vim.fn.reg_recording()
   add('Recording', rec ~= '' and ('macro into register "%s"'):format(rec) or 'not recording')
   add()
 
-  add(icons.git ~= '' and icons.git or 'Git', vim.b[bufnr].gitsigns_head or '(not tracked)', 'MiniStatuslineDevinfo')
+  add(iconword(icons.git, 'Git'), vim.b[bufnr].gitsigns_head or '(not tracked)', 'MiniStatuslineDevinfo')
   local diff = vim.b[bufnr].gitsigns_status_dict
   if diff and ((diff.added or 0) + (diff.changed or 0) + (diff.removed or 0) > 0) then
     add('Diff', ('+%d ~%d -%d'):format(diff.added or 0, diff.changed or 0, diff.removed or 0))
@@ -125,8 +132,7 @@ local function build_lines(bufnr, winid)
     for _, level in ipairs { vim.diagnostic.severity.ERROR, vim.diagnostic.severity.WARN, vim.diagnostic.severity.INFO, vim.diagnostic.severity.HINT } do
       local n = counts[level] or 0
       if n > 0 then
-        local icon = diag_icons[level] or sev_names[level]
-        add(icon, tostring(n), diag_hl[level])
+        add(iconword(diag_icons[level] or '', sev_names[level]), tostring(n), diag_hl[level])
         for _, d in ipairs(vim.diagnostic.get(bufnr, { severity = level })) do
           table.insert(lines, ('  line %d: %s [%s]'):format(d.lnum + 1, d.message:gsub('\n', ' '), d.source or sev_names[level]))
         end
@@ -143,7 +149,7 @@ local function build_lines(bufnr, winid)
     for _, c in ipairs(clients) do
       table.insert(names, c.name)
     end
-    add(icons.lsp ~= '' and icons.lsp or 'LSP', table.concat(names, ', '), 'MiniStatuslineDevinfo')
+    add(iconword(icons.lsp, 'LSP'), table.concat(names, ', '), 'MiniStatuslineDevinfo')
   end
   add()
 
@@ -158,7 +164,7 @@ local function build_lines(bufnr, winid)
   end
 
   add('File', name ~= '' and name or '[No Name]')
-  add(file_icon ~= '' and file_icon or 'Filetype', filetype ~= '' and filetype or '(none)', file_icon_hl)
+  add(iconword(file_icon, 'Filetype'), filetype ~= '' and filetype or '(none)', file_icon_hl)
   add('Encoding', vim.bo[bufnr].fileencoding ~= '' and vim.bo[bufnr].fileencoding or vim.o.encoding)
   add('Fileformat', vim.bo[bufnr].fileformat)
   add('Modified', vim.bo[bufnr].modified and 'yes' or 'no')
