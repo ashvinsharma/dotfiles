@@ -186,7 +186,26 @@ vim.filetype.add {
 vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
 
 -- Diagnostic keymaps
-vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = 'Open diagnostic [Q]uickfix list' })
+--
+-- vim.diagnostic.setloclist() always sorts entries by line/col only (its
+-- internal toqflist() conversion hardcodes that sort), with no way to group
+-- by severity first. So populate the loclist normally, then re-sort its
+-- items in place: severity (error, warn, info, hint) first, line number
+-- within each severity.
+local diagnostic_type_rank = { E = 1, W = 2, I = 3, N = 4 }
+vim.keymap.set('n', '<leader>q', function()
+  vim.diagnostic.setloclist { open = false }
+  local items = vim.fn.getloclist(0)
+  table.sort(items, function(a, b)
+    local rank_a, rank_b = diagnostic_type_rank[a.type] or 5, diagnostic_type_rank[b.type] or 5
+    if rank_a ~= rank_b then
+      return rank_a < rank_b
+    end
+    return a.lnum < b.lnum
+  end)
+  vim.fn.setloclist(0, {}, 'r', { items = items })
+  vim.cmd.lopen()
+end, { desc = 'Open diagnostic [Q]uickfix list' })
 
 -- Exit terminal mode in the builtin terminal with a shortcut that is a bit easier
 -- for people to discover. Otherwise, you normally need to press <C-\><C-n>, which
