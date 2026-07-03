@@ -108,7 +108,13 @@ return {
         ---@param client vim.lsp.Client
         ---@param uri string
         ---@param position lsp.Position
-        show_hover_at = function(client, uri, position)
+        ---@param source_winid integer the real editing window the hover chain started from --
+        --- open_floating_preview sizes/positions itself using the *current*
+        --- window's winheight()/winline()/wincol(), so calling it while a
+        --- nested hover popup is current would clamp the new popup to fit
+        --- inside that tiny float. nvim_win_call fools it into measuring
+        --- against the real window instead, without changing focus.
+        show_hover_at = function(client, uri, position, source_winid)
           client:request(vim.lsp.protocol.Methods.textDocument_hover, {
             textDocument = { uri = uri },
             position = position,
@@ -122,13 +128,21 @@ return {
               vim.notify('No hover info available', vim.log.levels.INFO)
               return
             end
-            local hover_bufnr, winid = vim.lsp.util.open_floating_preview(md_lines, 'markdown', {
-              max_width = 200,
-              border = 'rounded',
-            })
+            local hover_bufnr, winid
+            local function open()
+              hover_bufnr, winid = vim.lsp.util.open_floating_preview(md_lines, 'markdown', {
+                max_width = 200,
+                border = 'rounded',
+              })
+            end
+            if vim.api.nvim_win_is_valid(source_winid) then
+              vim.api.nvim_win_call(source_winid, open)
+            else
+              open()
+            end
             vim.api.nvim_set_current_win(winid)
             close_float_on_leave(winid, hover_bufnr)
-            setup_nested_hover(hover_bufnr, client)
+            setup_nested_hover(hover_bufnr, client, source_winid)
           end)
         end
 
@@ -141,7 +155,8 @@ return {
         -- not this glue code -- same as any other name-based LSP action.
         ---@param hover_bufnr integer
         ---@param client vim.lsp.Client
-        setup_nested_hover = function(hover_bufnr, client)
+        ---@param source_winid integer threaded through to show_hover_at so any depth of nesting still sizes against the real window
+        setup_nested_hover = function(hover_bufnr, client, source_winid)
           vim.keymap.set('n', '<F1>', function()
             local word = vim.fn.expand '<cword>'
             if word == '' then
@@ -159,14 +174,14 @@ return {
               local sym = results[1]
               local loc = sym.location
               if loc.range then
-                show_hover_at(client, loc.uri, loc.range.start)
+                show_hover_at(client, loc.uri, loc.range.start, source_winid)
               elseif client_supports_method(client, vim.lsp.protocol.Methods.workspaceSymbol_resolve) then
                 client:request(vim.lsp.protocol.Methods.workspaceSymbol_resolve, sym, function(rerr, resolved)
                   if rerr or not resolved or not resolved.location.range then
                     vim.notify('Could not resolve location for "' .. word .. '"', vim.log.levels.INFO)
                     return
                   end
-                  show_hover_at(client, resolved.location.uri, resolved.location.range.start)
+                  show_hover_at(client, resolved.location.uri, resolved.location.range.start, source_winid)
                 end)
               else
                 vim.notify('Symbol location has no range and server cannot resolve it', vim.log.levels.INFO)
@@ -190,6 +205,7 @@ return {
         -- nested hover navigation inside it too.
         map('<F1>', function()
           local bufnr = vim.api.nvim_get_current_buf()
+          local source_winid = vim.api.nvim_get_current_win()
           local clients = vim.lsp.get_clients { bufnr = bufnr }
           vim.lsp.buf.hover { max_width = 100, border = 'rounded' }
 
@@ -202,7 +218,7 @@ return {
               local hover_bufnr = vim.api.nvim_win_get_buf(win)
               close_float_on_leave(win, hover_bufnr)
               if clients[1] then
-                setup_nested_hover(hover_bufnr, clients[1])
+                setup_nested_hover(hover_bufnr, clients[1], source_winid)
               end
             elseif tries < 10 then
               vim.defer_fn(try_focus, 30)
