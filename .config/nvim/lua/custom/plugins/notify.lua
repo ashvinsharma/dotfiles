@@ -3,8 +3,21 @@ return {
   init = function()
     -- Lazily require so this works even for notifications fired before the
     -- plugin object has fully loaded/applied opts.
-    vim.notify = function(...)
-      return require('notify')(...)
+    --
+    -- Drops exactly one specific message: Neovim core's vim/_watch.lua hits
+    -- this every session an LSP server (gopls) registers a workspace watch
+    -- on a directory that doesn't exist (e.g. an unvendored vendor/ dir) --
+    -- see https://github.com/neovim/neovim/issues/28058. Neovim's own
+    -- source comment calls it "a placeholder until we have `nvim_log` API",
+    -- and it's deduped to fire at most once per session anyway
+    -- (vim.notify_once), so silencing this one exact message doesn't risk
+    -- hiding a real, different problem -- everything else still comes
+    -- through normally.
+    vim.notify = function(msg, ...)
+      if type(msg) == 'string' and msg:match '^watch%.watch: ENOENT' then
+        return
+      end
+      return require('notify')(msg, ...)
     end
 
     -- Bridge LSP $/progress events (workspace loading, indexing, etc.) into
