@@ -41,6 +41,40 @@ local mode_names = {
   t = 'Terminal',
 }
 
+-- Diagnostic icons/highlights come straight from the same config the
+-- statusline itself reads (nvim-lspconfig.lua's vim.diagnostic.config), so
+-- if those ever change, this follows automatically instead of drifting.
+local diag_hl = {
+  [vim.diagnostic.severity.ERROR] = 'DiagnosticError',
+  [vim.diagnostic.severity.WARN] = 'DiagnosticWarn',
+  [vim.diagnostic.severity.INFO] = 'DiagnosticInfo',
+  [vim.diagnostic.severity.HINT] = 'DiagnosticHint',
+}
+local sev_names = {
+  [vim.diagnostic.severity.ERROR] = 'Error',
+  [vim.diagnostic.severity.WARN] = 'Warning',
+  [vim.diagnostic.severity.INFO] = 'Info',
+  [vim.diagnostic.severity.HINT] = 'Hint',
+}
+
+---Git/LSP icons aren't exposed as standalone config -- they're baked into
+---MiniStatusline.section_git()/section_lsp()'s own returned string as
+---"<icon> <value>". Call them for real (trunc_width = -1 forces the
+---non-empty form regardless of window width) and take the first token,
+---rather than hardcoding glyphs that would silently drift from whatever
+---mini-vim.lua actually configures.
+---@param winid integer
+local function get_statusline_icons(winid)
+  return vim.api.nvim_win_call(winid, function()
+    local git_str = MiniStatusline.section_git { trunc_width = -1 }
+    local lsp_str = MiniStatusline.section_lsp { trunc_width = -1 }
+    return {
+      git = git_str:match '^(%S+)' or '',
+      lsp = lsp_str:match '^(%S+)' or '',
+    }
+  end)
+end
+
 ---Report data is about the buffer/window that was current *before* the
 ---popup opened, captured once in open() -- everything below must take it
 ---explicitly rather than asking for "the current buffer", since by the
@@ -48,19 +82,20 @@ local mode_names = {
 ---@param bufnr integer
 ---@param winid integer
 ---@return string[] lines
----@return {line: integer, col_end: integer}[] label_spans -- ranges to dim as labels
+---@return {line: integer, col_end: integer, hl: string}[] label_spans
 local function build_lines(bufnr, winid)
   local cursor = vim.api.nvim_win_is_valid(winid) and vim.api.nvim_win_get_cursor(winid) or { 0, 0 }
+  local icons = get_statusline_icons(winid)
   local lines = {}
   local label_spans = {}
 
-  local function add(label, value)
+  local function add(label, value, hl)
     if label == nil then
       table.insert(lines, '')
       return
     end
     table.insert(lines, ('%s: %s'):format(label, value))
-    table.insert(label_spans, { line = #lines - 1, col_end = #label + 1 })
+    table.insert(label_spans, { line = #lines - 1, col_end = #label + 1, hl = hl or 'Comment' })
   end
 
   add('Mode', mode_names[vim.api.nvim_get_mode().mode] or vim.api.nvim_get_mode().mode)
@@ -69,17 +104,16 @@ local function build_lines(bufnr, winid)
   add('Recording', rec ~= '' and ('macro into register "%s"'):format(rec) or 'not recording')
   add()
 
-  add('Git branch', vim.b[bufnr].gitsigns_head or '(not tracked)')
+  add(icons.git ~= '' and icons.git or 'Git', vim.b[bufnr].gitsigns_head or '(not tracked)', 'MiniStatuslineDevinfo')
   local diff = vim.b[bufnr].gitsigns_status_dict
   if diff and ((diff.added or 0) + (diff.changed or 0) + (diff.removed or 0) > 0) then
-    add('Git diff', ('+%d ~%d -%d'):format(diff.added or 0, diff.changed or 0, diff.removed or 0))
+    add('Diff', ('+%d ~%d -%d'):format(diff.added or 0, diff.changed or 0, diff.removed or 0))
   else
-    add('Git diff', 'no changes')
+    add('Diff', 'no changes')
   end
   add()
 
-  local sev = vim.diagnostic.severity
-  local sev_names = { [sev.ERROR] = 'Error', [sev.WARN] = 'Warning', [sev.INFO] = 'Info', [sev.HINT] = 'Hint' }
+  local diag_icons = (vim.diagnostic.config().signs or {}).text or {}
   local counts = vim.diagnostic.count(bufnr)
   local total = 0
   for _, n in pairs(counts) do
@@ -88,34 +122,43 @@ local function build_lines(bufnr, winid)
   if total == 0 then
     add('Diagnostics', 'none')
   else
-    local parts = {}
-    for _, level in ipairs { sev.ERROR, sev.WARN, sev.INFO, sev.HINT } do
-      if (counts[level] or 0) > 0 then
-        table.insert(parts, ('%d %s'):format(counts[level], sev_names[level]))
+    for _, level in ipairs { vim.diagnostic.severity.ERROR, vim.diagnostic.severity.WARN, vim.diagnostic.severity.INFO, vim.diagnostic.severity.HINT } do
+      local n = counts[level] or 0
+      if n > 0 then
+        local icon = diag_icons[level] or sev_names[level]
+        add(icon, tostring(n), diag_hl[level])
+        for _, d in ipairs(vim.diagnostic.get(bufnr, { severity = level })) do
+          table.insert(lines, ('  line %d: %s [%s]'):format(d.lnum + 1, d.message:gsub('\n', ' '), d.source or sev_names[level]))
+        end
       end
-    end
-    add('Diagnostics', table.concat(parts, ', '))
-    for _, d in ipairs(vim.diagnostic.get(bufnr)) do
-      table.insert(lines, ('  line %d: %s [%s]'):format(d.lnum + 1, d.message:gsub('\n', ' '), d.source or sev_names[d.severity]))
     end
   end
   add()
 
   local clients = vim.lsp.get_clients { bufnr = bufnr }
   if #clients == 0 then
-    add('LSP clients', 'none attached')
+    add('LSP', 'none attached')
   else
     local names = {}
     for _, c in ipairs(clients) do
       table.insert(names, c.name)
     end
-    add('LSP clients', table.concat(names, ', '))
+    add(icons.lsp ~= '' and icons.lsp or 'LSP', table.concat(names, ', '), 'MiniStatuslineDevinfo')
   end
   add()
 
   local name = vim.api.nvim_buf_get_name(bufnr)
+  local filetype = vim.bo[bufnr].filetype
+  local file_icon, file_icon_hl = '', nil
+  if filetype ~= '' then
+    local ok_dev, devicons = pcall(require, 'nvim-web-devicons')
+    if ok_dev then
+      file_icon, file_icon_hl = devicons.get_icon(vim.fn.fnamemodify(name, ':t'), nil, { default = true })
+    end
+  end
+
   add('File', name ~= '' and name or '[No Name]')
-  add('Filetype', vim.bo[bufnr].filetype ~= '' and vim.bo[bufnr].filetype or '(none)')
+  add(file_icon ~= '' and file_icon or 'Filetype', filetype ~= '' and filetype or '(none)', file_icon_hl)
   add('Encoding', vim.bo[bufnr].fileencoding ~= '' and vim.bo[bufnr].fileencoding or vim.o.encoding)
   add('Fileformat', vim.bo[bufnr].fileformat)
   add('Modified', vim.bo[bufnr].modified and 'yes' or 'no')
@@ -155,7 +198,7 @@ local function render()
   vim.api.nvim_buf_clear_namespace(buf_id, -1, 0, -1)
   local ns = vim.api.nvim_create_namespace 'statusline_report'
   for _, span in ipairs(label_spans) do
-    vim.hl.range(buf_id, ns, 'Comment', { span.line, 0 }, { span.line, span.col_end })
+    vim.hl.range(buf_id, ns, span.hl, { span.line, 0 }, { span.line, span.col_end })
   end
 
   -- Autocmd-driven buffer updates (e.g. RecordingLeave firing mid-keystroke)
