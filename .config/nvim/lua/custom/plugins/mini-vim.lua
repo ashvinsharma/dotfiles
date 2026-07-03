@@ -16,6 +16,12 @@ return { -- Collection of various small independent plugins/modules
     -- - sr)'  - [S]urround [R]eplace [)] [']
     require('mini.surround').setup()
 
+    -- Animates cursor movement, scrolling (Ctrl-D/U/F/B, gg/G, etc.),
+    -- window resize, and open/close -- Neovim jumps these instantly with no
+    -- easing by default, which feels rough. Defaults enable all of the
+    -- above; see :h MiniAnimate.config to disable any of them individually.
+    require('mini.animate').setup()
+
     -- Simple and easy statusline.
     --  You could remove this setup call if you don't like it,
     --  and try some other statusline plugin
