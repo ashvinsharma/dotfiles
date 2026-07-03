@@ -20,6 +20,10 @@ return { -- Collection of various small independent plugins/modules
     -- window resize, and open/close -- Neovim jumps these instantly with no
     -- easing by default, which feels rough. Defaults enable all of the
     -- above; see :h MiniAnimate.config to disable any of them individually.
+    --
+    -- Choppy specifically inside tmux without ~/.tmux.conf declaring the
+    -- "sync" terminal-feature for Ghostty (batches rapid redraws into one
+    -- atomic paint) -- see the comment there.
     require('mini.animate').setup()
 
     -- Simple and easy statusline.
