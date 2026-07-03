@@ -105,27 +105,37 @@ return {
         end
 
         -- open_floating_preview anchors horizontally at the cursor's screen
-        -- column, extending right until it would overflow (then flipping to
-        -- extend left instead). That corner-flip is driven entirely by
+        -- column, extending right, then *flips* to extend left instead if
+        -- that would overflow the window -- a corner-flip driven entirely by
         -- content width, so a short doc sits snugly near the cursor while a
-        -- long one for the very same cursor position can flip sides and get
-        -- clamped flush against the host window's edge -- a jarring jump
-        -- between hovers. Center it on the host window's width instead, for
-        -- equal margins on both sides no matter how wide the content is.
+        -- long one at the very same cursor position can jump to hug the
+        -- opposite edge of the window instead, far from the caret.
+        --
+        -- Keep it near the caret rather than centering the window (centering
+        -- fixed the jump but made every hover appear in the middle of the
+        -- window regardless of where you're actually looking, which is
+        -- worse for a doc you're reading in place). Instead, keep whatever
+        -- left edge Neovim already chose and just slide it the minimum
+        -- amount needed to stay fully inside the window -- clamping, not
+        -- flipping or recentering.
         --
         -- Left untouched: the *vertical* half of Neovim's placement (row and
         -- the N/S half of anchor). Its anchor_bias='auto' already picks
         -- whichever of above/below the cursor's line has more real estate,
         -- using only the cursor's position -- not content height -- so it's
         -- already stable across different doc sizes and needs no fixing.
-        ---@param winid integer floating window to recenter horizontally
-        local function center_float_horizontally(winid)
+        ---@param winid integer floating window to keep on-screen near the caret
+        local function keep_float_near_caret(winid)
           local cfg = vim.api.nvim_win_get_config(winid)
           if cfg.relative ~= 'win' then
             return
           end
           local host_width = vim.api.nvim_win_get_width(cfg.win)
-          local col = math.max(0, math.floor((host_width - cfg.width) / 2))
+          local horiz_anchor = (cfg.anchor or 'NW'):sub(2, 2)
+          -- Normalize to a left-edge column regardless of which corner
+          -- Neovim anchored to ('E' means cfg.col is the *right* edge).
+          local desired_left = horiz_anchor == 'E' and (cfg.col - cfg.width) or cfg.col
+          local col = math.max(0, math.min(desired_left, host_width - cfg.width))
           local vert_anchor = (cfg.anchor or 'NW'):sub(1, 1)
           vim.api.nvim_win_set_config(winid, {
             relative = 'win',
@@ -165,7 +175,7 @@ return {
           else
             open()
           end
-          center_float_horizontally(winid)
+          keep_float_near_caret(winid)
           vim.api.nvim_set_current_win(winid)
           close_float_on_leave(winid, hover_bufnr)
           setup_nested_hover(hover_bufnr, client, source_winid, history)
@@ -296,7 +306,7 @@ return {
             tries = tries + 1
             local win = vim.b[bufnr].lsp_floating_preview
             if win and vim.api.nvim_win_is_valid(win) then
-              center_float_horizontally(win)
+              keep_float_near_caret(win)
               vim.api.nvim_set_current_win(win)
               local hover_bufnr = vim.api.nvim_win_get_buf(win)
               close_float_on_leave(win, hover_bufnr)
