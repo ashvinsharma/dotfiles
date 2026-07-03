@@ -78,6 +78,29 @@ return {
         local show_hover_at
         local setup_nested_hover
 
+        -- Because we forcibly focus the hover float (see below), Neovim's
+        -- built-in auto-close never fires: it's wired to CursorMoved/BufLeave
+        -- on the *source* buffer, and jumping back to the previous window
+        -- (<C-w>p, Ctrl-hjkl, etc.) neither moves the cursor nor re-leaves
+        -- that buffer if you land back exactly where you started. Closing on
+        -- WinLeave of the float's own buffer instead means it closes the
+        -- instant focus leaves it, no matter how you left.
+        ---@param winid integer floating window id
+        ---@param bufnr integer floating window's own buffer
+        local function close_float_on_leave(winid, bufnr)
+          vim.api.nvim_create_autocmd('WinLeave', {
+            buffer = bufnr,
+            once = true,
+            callback = function()
+              vim.schedule(function()
+                if vim.api.nvim_win_is_valid(winid) then
+                  vim.api.nvim_win_close(winid, true)
+                end
+              end)
+            end,
+          })
+        end
+
         -- Request hover at an arbitrary (uri, position) -- not necessarily
         -- where the cursor actually is -- and open it focused, same as the
         -- normal <F1> hover below. Used both for the initial hover and for
@@ -104,6 +127,7 @@ return {
               border = 'rounded',
             })
             vim.api.nvim_set_current_win(winid)
+            close_float_on_leave(winid, hover_bufnr)
             setup_nested_hover(hover_bufnr, client)
           end)
         end
@@ -175,8 +199,10 @@ return {
             local win = vim.b[bufnr].lsp_floating_preview
             if win and vim.api.nvim_win_is_valid(win) then
               vim.api.nvim_set_current_win(win)
+              local hover_bufnr = vim.api.nvim_win_get_buf(win)
+              close_float_on_leave(win, hover_bufnr)
               if clients[1] then
-                setup_nested_hover(vim.api.nvim_win_get_buf(win), clients[1])
+                setup_nested_hover(hover_bufnr, clients[1])
               end
             elseif tries < 10 then
               vim.defer_fn(try_focus, 30)
