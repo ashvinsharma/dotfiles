@@ -202,6 +202,12 @@ vim.keymap.set('n', '<right>', '<cmd>echo "Use l to move!!"<CR>')
 vim.keymap.set('n', '<up>', '<cmd>echo "Use k to move!!"<CR>')
 vim.keymap.set('n', '<down>', '<cmd>echo "Use j to move!!"<CR>')
 
+-- Disable Vim's built-in F1 -> :help default globally, so it never fires in
+-- buffers without an LSP attached. nvim-lspconfig.lua adds a buffer-local
+-- F1 -> hover-documentation mapping once a language server attaches, which
+-- overrides this <Nop> for that buffer.
+vim.keymap.set('n', '<F1>', '<Nop>', { desc = 'Disabled (was :help)' })
+
 -- Split/pane navigation with CTRL+<hjkl> is handled by vim-tmux-navigator
 -- (see lua/custom/plugins/tmux-navigator.lua), so the same keys also move
 -- between tmux panes at the edge of the nvim window layout.

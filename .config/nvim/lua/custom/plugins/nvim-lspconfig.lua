@@ -58,6 +58,133 @@ return {
           vim.keymap.set(mode, keys, func, { buffer = event.buf, desc = 'LSP: ' .. desc })
         end
 
+        -- This function resolves a difference between neovim nightly (version 0.11) and stable (version 0.10)
+        ---@param client vim.lsp.Client
+        ---@param method vim.lsp.protocol.Method
+        ---@param bufnr? integer some lsp support methods only in specific files
+        ---@return boolean
+        local function client_supports_method(client, method, bufnr)
+          if vim.fn.has 'nvim-0.11' == 1 then
+            return client:supports_method(method, bufnr)
+          else
+            return client.supports_method(method, { bufnr = bufnr })
+          end
+        end
+
+        -- Forward-declared: show_hover_at and setup_nested_hover call each
+        -- other (a hover popup can trigger another nested hover popup), so
+        -- neither can be a plain `local function` defined only at its own
+        -- use site.
+        local show_hover_at
+        local setup_nested_hover
+
+        -- Request hover at an arbitrary (uri, position) -- not necessarily
+        -- where the cursor actually is -- and open it focused, same as the
+        -- normal <F1> hover below. Used both for the initial hover and for
+        -- "nested" hovers triggered from inside a hover popup (see below).
+        ---@param client vim.lsp.Client
+        ---@param uri string
+        ---@param position lsp.Position
+        show_hover_at = function(client, uri, position)
+          client:request(vim.lsp.protocol.Methods.textDocument_hover, {
+            textDocument = { uri = uri },
+            position = position,
+          }, function(err, result)
+            if err or not result or not result.contents then
+              vim.notify('No hover info available', vim.log.levels.INFO)
+              return
+            end
+            local md_lines = vim.lsp.util.convert_input_to_markdown_lines(result.contents)
+            if vim.tbl_isempty(md_lines) then
+              vim.notify('No hover info available', vim.log.levels.INFO)
+              return
+            end
+            local hover_bufnr, winid = vim.lsp.util.open_floating_preview(md_lines, 'markdown', {
+              max_width = 200,
+              border = 'rounded',
+            })
+            vim.api.nvim_set_current_win(winid)
+            setup_nested_hover(hover_bufnr, client)
+          end)
+        end
+
+        -- Lets you press <F1> again *inside* a hover popup, on a word
+        -- mentioned in its text, to drill into documentation for that word
+        -- too. The popup buffer has no file/LSP client of its own, so this
+        -- can't do a real position-based hover -- it does a workspace/symbol
+        -- search by name instead. A wrong/ambiguous match here (e.g. an
+        -- overloaded or shadowed name) is the LSP server's search quality,
+        -- not this glue code -- same as any other name-based LSP action.
+        ---@param hover_bufnr integer
+        ---@param client vim.lsp.Client
+        setup_nested_hover = function(hover_bufnr, client)
+          vim.keymap.set('n', '<F1>', function()
+            local word = vim.fn.expand '<cword>'
+            if word == '' then
+              return
+            end
+            if not client_supports_method(client, vim.lsp.protocol.Methods.workspace_symbol) then
+              vim.notify('LSP server does not support workspace symbol search', vim.log.levels.WARN)
+              return
+            end
+            client:request(vim.lsp.protocol.Methods.workspace_symbol, { query = word }, function(err, results)
+              if err or not results or #results == 0 then
+                vim.notify('No symbol found for "' .. word .. '"', vim.log.levels.INFO)
+                return
+              end
+              local sym = results[1]
+              local loc = sym.location
+              if loc.range then
+                show_hover_at(client, loc.uri, loc.range.start)
+              elseif client_supports_method(client, vim.lsp.protocol.Methods.workspaceSymbol_resolve) then
+                client:request(vim.lsp.protocol.Methods.workspaceSymbol_resolve, sym, function(rerr, resolved)
+                  if rerr or not resolved or not resolved.location.range then
+                    vim.notify('Could not resolve location for "' .. word .. '"', vim.log.levels.INFO)
+                    return
+                  end
+                  show_hover_at(client, resolved.location.uri, resolved.location.range.start)
+                end)
+              else
+                vim.notify('Symbol location has no range and server cannot resolve it', vim.log.levels.INFO)
+              end
+            end)
+          end, { buffer = hover_bufnr, desc = 'Hover doc for symbol under cursor (workspace search)' })
+        end
+
+        -- Show hover documentation for the symbol under your cursor.
+        -- Neovim already binds this to `K` by default; this just adds a
+        -- second, more IntelliJ-familiar way to trigger the same thing.
+        -- max_width caps it at 200 columns instead of stretching across the
+        -- whole window for long docs.
+        --
+        -- vim.lsp.util.open_floating_preview (which hover uses) hardcodes
+        -- `enter = false` when creating the window, so it's never focused on
+        -- first open no matter what config is passed -- there's no built-in
+        -- option for this. Poll for the window it creates (stored as
+        -- vim.b[bufnr].lsp_floating_preview once the async hover response
+        -- lands) and focus it ourselves as soon as it exists, then wire up
+        -- nested hover navigation inside it too.
+        map('<F1>', function()
+          local bufnr = vim.api.nvim_get_current_buf()
+          local clients = vim.lsp.get_clients { bufnr = bufnr }
+          vim.lsp.buf.hover { max_width = 100, border = 'rounded' }
+
+          local tries = 0
+          local function try_focus()
+            tries = tries + 1
+            local win = vim.b[bufnr].lsp_floating_preview
+            if win and vim.api.nvim_win_is_valid(win) then
+              vim.api.nvim_set_current_win(win)
+              if clients[1] then
+                setup_nested_hover(vim.api.nvim_win_get_buf(win), clients[1])
+              end
+            elseif tries < 10 then
+              vim.defer_fn(try_focus, 30)
+            end
+          end
+          vim.defer_fn(try_focus, 30)
+        end, 'Hover Documentation (focused)')
+
         -- Rename the variable under your cursor.
         --  Most Language Servers support renaming across files, etc.
         map('grn', vim.lsp.buf.rename, '[R]e[n]ame')
@@ -95,18 +222,8 @@ return {
         --  the definition of its *type*, not where it was *defined*.
         map('grt', require('telescope.builtin').lsp_type_definitions, '[G]oto [T]ype Definition')
 
-        -- This function resolves a difference between neovim nightly (version 0.11) and stable (version 0.10)
-        ---@param client vim.lsp.Client
-        ---@param method vim.lsp.protocol.Method
-        ---@param bufnr? integer some lsp support methods only in specific files
-        ---@return boolean
-        local function client_supports_method(client, method, bufnr)
-          if vim.fn.has 'nvim-0.11' == 1 then
-            return client:supports_method(method, bufnr)
-          else
-            return client.supports_method(method, { bufnr = bufnr })
-          end
-        end
+        -- (client_supports_method is defined earlier in this callback now,
+        -- alongside the F1 hover/nested-hover setup that also needs it.)
 
         -- The following two autocommands are used to highlight references of the
         -- word under your cursor when your cursor rests there for a little while.
