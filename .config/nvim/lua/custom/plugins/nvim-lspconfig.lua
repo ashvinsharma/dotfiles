@@ -9,8 +9,9 @@ return {
     'williamboman/mason-lspconfig.nvim',
     'WhoIsSethDaniel/mason-tool-installer.nvim',
 
-    -- Useful status updates for LSP.
-    { 'j-hui/fidget.nvim', opts = {} },
+    -- LSP status updates (workspace loading, indexing, etc.) are bridged
+    -- straight into nvim-notify instead -- see custom/plugins/notify.lua --
+    -- so fidget.nvim's separate progress window isn't needed here.
 
     -- Allows extra capabilities provided by nvim-cmp
     'hrsh7th/cmp-nvim-lsp',
