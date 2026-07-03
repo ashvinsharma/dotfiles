@@ -219,7 +219,7 @@ vim.keymap.set('n', '<F1>', '<Nop>', { desc = 'Disabled (was :help)' })
 -- vim.keymap.set("n", "<C-S-k>", "<C-w>K", { desc = "Move window to the upper" })
 
 require 'custom.settings.copy'
-require 'custom.settings.statusline_legend'
+require 'custom.settings.statusline_report'
 
 -- session options
 vim.o.sessionoptions = 'blank,buffers,curdir,folds,help,tabpages,winsize,winpos,terminal,localoptions'
