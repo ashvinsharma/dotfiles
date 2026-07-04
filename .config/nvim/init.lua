@@ -163,6 +163,7 @@ vim.opt.scrolloff = 5
 vim.opt.confirm = true
 
 require 'custom.settings.fold'
+require 'custom.settings.mise-env'
 
 -- Load .nvim.lua from the project root if it exists.
 -- This lets each project define its own linters, formatters, keymaps, etc.
@@ -172,9 +173,15 @@ vim.opt.exrc = true
 -- Teach Neovim that .tofu files are OpenTofu (terraform filetype).
 -- This makes treesitter, LSP (terraformls), linters (tflint), and
 -- formatters (tofu_fmt) all activate automatically on .tofu files.
+--
+-- .tmpl/.gotmpl aren't detected by Neovim at all by default (unlike
+-- go.mod/go.work, which are); gopls declares "gotmpl" as a filetype it
+-- supports, but without this it never gets the chance to attach.
 vim.filetype.add {
   extension = {
     tofu = 'terraform',
+    tmpl = 'gotmpl',
+    gotmpl = 'gotmpl',
   },
 }
 

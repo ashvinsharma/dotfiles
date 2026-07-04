@@ -31,7 +31,7 @@ return { -- Autoformat
     end,
     formatters_by_ft = {
       lua = { 'stylua' },
-      go = { 'goimports', 'gofmt' },
+      go = { 'golangci_lint_fmt' },
       sh = { 'shfmt' },
       bash = { 'shfmt' },
       zsh = { 'shfmt' },
@@ -46,6 +46,29 @@ return { -- Autoformat
         command = 'tofu',
         args = { 'fmt', '-' },
         stdin = true,
+      },
+      -- `golangci-lint fmt` applies whatever formatters.* section a
+      -- project's own .golangci.yml declares (custom gofmt rewrite rules,
+      -- goimports local-prefixes, etc.), falling back to plain gofmt +
+      -- goimports if the project has no such config -- adapts per project
+      -- automatically, no per-project nvim file needed. Plain PATH lookup;
+      -- correct per-project version resolution comes from
+      -- custom.settings.mise-env keeping $PATH in sync, not from anything
+      -- here. cwd is rooted at the nearest .golangci.yml/go.mod so
+      -- golangci-lint's own config discovery looks in the right place
+      -- regardless of Neovim's global cwd.
+      golangci_lint_fmt = {
+        command = 'golangci-lint',
+        args = { 'fmt', '--stdin' },
+        stdin = true,
+        -- Deferred: calling require('conform.util') here (rather than at
+        -- the top of this file) avoids requiring conform's own runtime
+        -- files before lazy.nvim has necessarily loaded them -- this table
+        -- is evaluated when lazy.nvim parses the spec, which can happen
+        -- before conform.nvim itself is on the runtimepath.
+        cwd = function(self, ctx)
+          return require('conform.util').root_file { '.golangci.yml', '.golangci.yaml', 'go.mod', 'go.work' }(self, ctx)
+        end,
       },
     },
   },
