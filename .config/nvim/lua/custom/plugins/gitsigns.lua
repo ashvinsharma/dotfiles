@@ -2,6 +2,14 @@ return {
   {
     'lewis6991/gitsigns.nvim',
     opts = {
+      -- Deep-extended onto gitsigns' own preview_config default (style =
+      -- 'minimal', relative = 'cursor', ...), so this only adds a border
+      -- without needing to repeat the rest. Covers both <leader>gB
+      -- (blame_line) and <leader>gp (preview_hunk) since they share the
+      -- same popup window config.
+      preview_config = {
+        border = 'rounded',
+      },
       on_attach = function(bufnr)
         local gitsigns = require 'gitsigns'
 
