@@ -151,6 +151,12 @@ return { -- Fuzzy Finder (files, lsp, etc)
           -- via use_custom_command instead (this is the exact same
           -- built-in bash pipeline, plus that one flag).
           use_custom_command = { 'bash', '-c', "echo '$DIFF' | delta --line-numbers" },
+          -- telescope-undo.nvim hardcodes prompt_title = "Undo History" as
+          -- a *default*, which pickers.new(opts, defaults) only applies
+          -- when opts doesn't already set that key -- so setting it here
+          -- overrides it, putting the keybind reminder directly in
+          -- Telescope's own UI chrome instead of a separate popup.
+          prompt_title = 'Undo History  (u restore · y/Y yank +/-)',
         },
       },
     }
