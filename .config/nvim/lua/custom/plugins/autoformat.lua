@@ -23,8 +23,19 @@ return { -- Autoformat
       if disable_filetypes[vim.bo[bufnr].filetype] then
         return nil
       else
+        -- golangci-lint fmt measured ~70-90ms standalone (cold cache
+        -- included -- `fmt` only runs the lightweight gofmt/goimports
+        -- formatters, not the full lint suite), but ~300ms under simulated
+        -- CPU contention (8 concurrent invocations) -- already 60% of the
+        -- default 500ms budget from contention alone, with no actual
+        -- slowness in the tool. gopls/other saves competing for CPU on a
+        -- real machine can plausibly push it over 500ms and silently drop
+        -- the format. Other formatters here (stylua, shfmt, ...) are
+        -- simple text formatters with no reason to be anywhere near that
+        -- slow, so they keep the tighter default.
+        local timeout_ms = vim.bo[bufnr].filetype == 'go' and 2000 or 500
         return {
-          timeout_ms = 500,
+          timeout_ms = timeout_ms,
           lsp_format = 'fallback',
         }
       end
