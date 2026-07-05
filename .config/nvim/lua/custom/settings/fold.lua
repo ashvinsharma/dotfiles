@@ -11,18 +11,58 @@ vim.opt.foldnestmax = 9
 -- start folding after N level
 vim.opt.foldlevelstart = 5
 -- change fold text to the first and the last line with ellipses in between
--- without this function, tabs were converted to spaces in vim.opt.foldtext
--- this was an issue in languages where tabs are used instead of spaces like
--- golang.
+-- without expanding tabs ourselves, they were converted to spaces by
+-- vim.opt.foldtext's plain-string handling -- an issue in languages where
+-- tabs are used instead of spaces like golang.
+local tabstop = vim.opt.tabstop:get()
+local function expand_tabs(text)
+  return (text:gsub('\t', string.rep(' ', tabstop)))
+end
+
+-- Returning a List (instead of a string) from 'foldtext' makes Neovim draw
+-- it like overlay virtual text, i.e. each {text, hlgroup} chunk keeps its
+-- own highlight instead of the whole line being flattened to one color
+-- (the default 'Folded' grey, indistinguishable from a comment). This
+-- walks a line column-by-column via treesitter to rebuild it as chunks
+-- with their real, theme-colored highlight groups, trimmed like
+-- vim.fn.trim() trimmed the plain-string version.
+local function line_chunks(bufnr, lnum)
+  local line = vim.api.nvim_buf_get_lines(bufnr, lnum, lnum + 1, false)[1] or ''
+  local first, last = line:find '%S.*%S'
+  if not first then
+    first, last = line:find '%S'
+    last = last or 0
+  end
+  local chunks = {}
+  local chunk_hl, chunk_start = nil, first - 1
+  for col = chunk_start, last - 1 do
+    local captures = vim.treesitter.get_captures_at_pos(bufnr, lnum, col)
+    -- last entry is the most specific (innermost) capture at this column
+    local cap = captures[#captures]
+    local hl = cap and ('@' .. cap.capture .. '.' .. cap.lang) or nil
+    if hl ~= chunk_hl then
+      if col > chunk_start then
+        table.insert(chunks, { expand_tabs(line:sub(chunk_start + 1, col)), chunk_hl })
+      end
+      chunk_start, chunk_hl = col, hl
+    end
+  end
+  if chunk_start < last then
+    table.insert(chunks, { expand_tabs(line:sub(chunk_start + 1, last)), chunk_hl })
+  end
+  return chunks
+end
+
 _G.CustomFoldText = function()
-  local line = vim.fn.getline(vim.v.foldstart)
-  local expanded_line = vim.fn.substitute(line, '\t', string.rep(' ', vim.opt.tabstop:get()), 'g')
-  local indentation = expanded_line:match '^%s*'
+  local bufnr = vim.api.nvim_get_current_buf()
+  local indentation = expand_tabs(vim.fn.getline(vim.v.foldstart)):match '^%s*'
 
-  local start_text = vim.fn.trim(line)
-  local end_text = vim.fn.trim(vim.fn.getline(vim.v.foldend))
+  local chunks = { { indentation } }
+  vim.list_extend(chunks, line_chunks(bufnr, vim.v.foldstart - 1))
+  table.insert(chunks, { ' ... ', '@comment' })
+  vim.list_extend(chunks, line_chunks(bufnr, vim.v.foldend - 1))
 
-  return indentation .. start_text .. '...' .. end_text
+  return chunks
 end
 vim.opt.foldtext = 'v:lua.CustomFoldText()'
 
