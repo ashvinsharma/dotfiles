@@ -32,7 +32,7 @@ palette = 14=#3fdcee
 palette = 15=#bebec1
 
 background-opacity = 0.7
-background-blur = 20
+background-blur = 40
 cursor-style = block
 cursor-style-blink = false
 bold-color = bright
