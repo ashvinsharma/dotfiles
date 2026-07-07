@@ -336,7 +336,16 @@ return {
         -- prompt. Needs `expr = true` since the mapping returns the
         -- `:IncRename <word>` command string for Neovim to execute, rather
         -- than performing the rename directly.
+        --
+        -- inc-rename detects preview errors via the global v:errmsg (see
+        -- https://github.com/neovim/neovim/issues/18910), which isn't
+        -- scoped to the preview call -- if it's left over from an earlier,
+        -- unrelated failed command (e.g. :LspInfo, removed as of Neovim
+        -- 0.12 in favor of the native :lsp), inc-rename mistakes it for its
+        -- own error and silently aborts the rename instead of performing
+        -- it. Clear it here so every rename starts from a clean slate.
         vim.keymap.set('n', 'grn', function()
+          vim.v.errmsg = ''
           return ':IncRename ' .. vim.fn.expand '<cword>'
         end, { buffer = event.buf, desc = 'LSP: [R]e[n]ame', expr = true })
 
