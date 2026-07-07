@@ -164,6 +164,7 @@ vim.opt.confirm = true
 
 require 'custom.settings.fold'
 require 'custom.settings.mise-env'
+require 'custom.settings.graphviz'
 
 -- Load .nvim.lua from the project root if it exists.
 -- This lets each project define its own linters, formatters, keymaps, etc.
@@ -182,6 +183,7 @@ vim.filetype.add {
     tofu = 'terraform',
     tmpl = 'gotmpl',
     gotmpl = 'gotmpl',
+    fabro = 'dot',
   },
 }
 

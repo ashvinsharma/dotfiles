@@ -246,3 +246,6 @@ loadenv() {
 }
 
 export GPG_TTY=$(tty)
+
+# fabro
+export PATH="/Users/ashvin/.fabro/bin:$PATH"
