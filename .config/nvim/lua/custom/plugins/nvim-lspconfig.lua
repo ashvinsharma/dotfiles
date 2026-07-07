@@ -480,6 +480,49 @@ return {
 
       yamlls = {},
 
+      -- Projects that bundle their own ruby-lsp/rubocop (e.g. gitlab/gitlab)
+      -- pin an exact gem version built against *their* mise-managed Ruby.
+      -- Mason's global install is a single gem pinned to whatever Ruby was
+      -- active at :MasonInstall time (baked into the gem's shebang line),
+      -- unrelated to any given project's mise version -- a real, silent
+      -- mismatch (e.g. Ruby 3.3.8 for the Mason gem vs. 3.3.11 pinned by a
+      -- project's mise.toml). Prefer `bundle exec` when the project's own
+      -- Gemfile.lock has the gem, so Bundler resolves the exact locked
+      -- version under whatever Ruby `mise-env.lua` has already put on PATH
+      -- for that project -- no version hardcoded here, and it follows
+      -- whatever each project pins. Falls back to Mason's global install
+      -- for standalone Ruby files with no bundled dev tooling.
+      ruby_lsp = {
+        cmd = function(dispatchers, config)
+          local argv = { 'ruby-lsp' }
+          local root = config and config.root_dir
+          if root and vim.fn.filereadable(root .. '/Gemfile.lock') == 1 then
+            for line in io.lines(root .. '/Gemfile.lock') do
+              if line:match '^    ruby%-lsp %(' then
+                argv = { 'bundle', 'exec', 'ruby-lsp' }
+                break
+              end
+            end
+          end
+          return vim.lsp.rpc.start(argv, dispatchers, root and { cwd = config.cmd_cwd or root })
+        end,
+      },
+
+      rubocop = {
+        on_new_config = function(new_config, new_root_dir)
+          local lockfile = new_root_dir .. '/Gemfile.lock'
+          if vim.fn.filereadable(lockfile) == 0 then
+            return
+          end
+          for line in io.lines(lockfile) do
+            if line:match '^    rubocop %(' then
+              new_config.cmd = { 'bundle', 'exec', 'rubocop', '--lsp' }
+              return
+            end
+          end
+        end,
+      },
+
       lua_ls = {
         -- cmd = { ... },
         -- filetypes = { ... },
