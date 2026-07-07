@@ -1,4 +1,11 @@
 return {
+  { 'tpope/vim-fugitive' },
+  {
+    'kdheepak/lazygit.nvim',
+    requires = {
+      'nvim-lua/plenary.nvim',
+    },
+  },
   {
     'lewis6991/gitsigns.nvim',
     opts = {
