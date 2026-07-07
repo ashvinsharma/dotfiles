@@ -331,7 +331,14 @@ return {
 
         -- Rename the variable under your cursor.
         --  Most Language Servers support renaming across files, etc.
-        map('grn', vim.lsp.buf.rename, '[R]e[n]ame')
+        -- Uses inc-rename.nvim for a live preview of the rename across all
+        -- occurrences as you type, instead of vim.lsp.buf.rename's blind
+        -- prompt. Needs `expr = true` since the mapping returns the
+        -- `:IncRename <word>` command string for Neovim to execute, rather
+        -- than performing the rename directly.
+        vim.keymap.set('n', 'grn', function()
+          return ':IncRename ' .. vim.fn.expand '<cword>'
+        end, { buffer = event.buf, desc = 'LSP: [R]e[n]ame', expr = true })
 
         -- Execute a code action, usually your cursor needs to be on top of an error
         -- or a suggestion from your LSP for this to activate.
