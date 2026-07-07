@@ -480,47 +480,29 @@ return {
 
       yamlls = {},
 
-      -- Projects that bundle their own ruby-lsp/rubocop (e.g. gitlab/gitlab)
-      -- pin an exact gem version built against *their* mise-managed Ruby.
-      -- Mason's global install is a single gem pinned to whatever Ruby was
-      -- active at :MasonInstall time (baked into the gem's shebang line),
-      -- unrelated to any given project's mise version -- a real, silent
-      -- mismatch (e.g. Ruby 3.3.8 for the Mason gem vs. 3.3.11 pinned by a
-      -- project's mise.toml). Prefer `bundle exec` when the project's own
-      -- Gemfile.lock has the gem, so Bundler resolves the exact locked
-      -- version under whatever Ruby `mise-env.lua` has already put on PATH
-      -- for that project -- no version hardcoded here, and it follows
-      -- whatever each project pins. Falls back to Mason's global install
-      -- for standalone Ruby files with no bundled dev tooling.
+      -- `bundle exec ruby-lsp`/`bundle exec rubocop` (via absolute path or
+      -- via mise's own shim) both reliably hit Bundler::GemNotFound when
+      -- spawned by nvim specifically -- reproduces every time from nvim,
+      -- never from a plain shell -- so the fix isn't which `bundle` gets
+      -- resolved, it's avoiding Bundler's resolution path entirely from
+      -- inside nvim. Point straight at the gem executables' own mise shims
+      -- instead (skip `bundle exec`); mise resolves those shims to whatever
+      -- Ruby is pinned for the buffer's project directory, same as it does
+      -- for any other mise shim. Bypassing Mason here too (`mason = false`)
+      -- since Mason's install is a single global gem pinned to whatever
+      -- Ruby was active at :MasonInstall time -- this is the actual
+      -- underlying issue prompting the switch, not just the bundle race.
+      -- Requires `ruby-lsp`/`rubocop` in the project's own Gemfile (already
+      -- true here) or a `gem install ruby-lsp rubocop` under the relevant
+      -- mise Ruby. No root_dir override: nvim-lspconfig's bundled default
+      -- (root_markers = {'Gemfile', '.git'}) already does the right thing.
       ruby_lsp = {
-        cmd = function(dispatchers, config)
-          local argv = { 'ruby-lsp' }
-          local root = config and config.root_dir
-          if root and vim.fn.filereadable(root .. '/Gemfile.lock') == 1 then
-            for line in io.lines(root .. '/Gemfile.lock') do
-              if line:match '^    ruby%-lsp %(' then
-                argv = { 'bundle', 'exec', 'ruby-lsp' }
-                break
-              end
-            end
-          end
-          return vim.lsp.rpc.start(argv, dispatchers, root and { cwd = config.cmd_cwd or root })
-        end,
+        mason = false,
+        cmd = { vim.fn.expand '~/.local/share/mise/shims/ruby-lsp' },
       },
-
       rubocop = {
-        on_new_config = function(new_config, new_root_dir)
-          local lockfile = new_root_dir .. '/Gemfile.lock'
-          if vim.fn.filereadable(lockfile) == 0 then
-            return
-          end
-          for line in io.lines(lockfile) do
-            if line:match '^    rubocop %(' then
-              new_config.cmd = { 'bundle', 'exec', 'rubocop', '--lsp' }
-              return
-            end
-          end
-        end,
+        mason = false,
+        cmd = { vim.fn.expand '~/.local/share/mise/shims/rubocop', '--lsp' },
       },
 
       lua_ls = {
@@ -552,7 +534,19 @@ return {
     --
     -- You can add other tools here that you want Mason to install
     -- for you, so that they are available from within Neovim.
-    local ensure_installed = vim.tbl_keys(servers or {})
+    --
+    -- Servers marked `mason = false` above manage their own executable
+    -- (project Gemfile / `gem install`, mise shim, etc.) -- skip them here
+    -- so mason-tool-installer doesn't fight that with its own install.
+    local non_mason_servers = {}
+    for server_name, server in pairs(servers) do
+      if server.mason == false then
+        table.insert(non_mason_servers, server_name)
+      end
+    end
+    local ensure_installed = vim.tbl_filter(function(name)
+      return not vim.tbl_contains(non_mason_servers, name)
+    end, vim.tbl_keys(servers or {}))
     vim.list_extend(ensure_installed, {
       'stylua', -- Used to format Lua code
     })
@@ -563,10 +557,22 @@ return {
     -- API (see mason-lspconfig.nvim's CHANGELOG.md, "Removed Features" under
     -- 2.0.0) -- the `handlers` table above is silently ignored by current
     -- versions, meaning every override in `servers` (capabilities merging,
-    -- lua_ls settings, the ruby_lsp/rubocop bundle-exec cmd, etc.) was
-    -- silently never applied. Configure each server directly via
-    -- vim.lsp.config(), then let mason-lspconfig's automatic_enable
-    -- (on by default) call vim.lsp.enable() for whichever ones it manages.
+    -- lua_ls settings, etc.) was silently never applied. Configure each
+    -- server directly via vim.lsp.config(), then let mason-lspconfig's
+    -- automatic_enable (on by default) call vim.lsp.enable() for whichever
+    -- ones it manages.
+    --
+    -- This used to be deferred to VimEnter so a project's own
+    -- .nvim/lsp/*.lua ('exrc', loaded after this `config` function but
+    -- before VimEnter) could still win the vim.lsp.config() race -- see
+    -- git history. Now that no project uses that mechanism, deferring only
+    -- hurts: nvim loads the file given on the command line (firing
+    -- FileType, and with it mason-lspconfig's *default* autostart for
+    -- whatever it has installed) *before* VimEnter, so for that first
+    -- buffer the override below used to lose the race to nvim-lspconfig's
+    -- bundled lsp/*.lua defaults every time. Running it inline instead
+    -- guarantees it's registered before any buffer -- and therefore any
+    -- FileType event -- can fire.
     for server_name, server in pairs(servers) do
       server.capabilities = vim.tbl_deep_extend('force', {}, capabilities, server.capabilities or {})
       vim.lsp.config(server_name, server)
@@ -574,6 +580,10 @@ return {
 
     require('mason-lspconfig').setup {
       ensure_installed = {}, -- explicitly set to an empty table (Kickstart populates installs via mason-tool-installer)
+      automatic_enable = { exclude = non_mason_servers },
     }
+    -- automatic_enable's exclude list means mason-lspconfig won't call
+    -- vim.lsp.enable() for these -- do it ourselves so they still autostart.
+    vim.lsp.enable(non_mason_servers)
   end,
 }
