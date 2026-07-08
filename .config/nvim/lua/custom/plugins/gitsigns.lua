@@ -2,7 +2,11 @@ return {
   { 'tpope/vim-fugitive' },
   {
     'kdheepak/lazygit.nvim',
-    requires = {
+    cmd = 'LazyGit',
+    keys = {
+      { '<leader>gg', ':LazyGit<CR>', silent = true, noremap = true, desc = 'Open [G]it [G]ui (lazygit)' },
+    },
+    dependencies = {
       'nvim-lua/plenary.nvim',
     },
   },
