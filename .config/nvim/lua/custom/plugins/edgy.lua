@@ -15,6 +15,7 @@ return {
     left = {
       { ft = 'neo-tree', title = 'Explorer', size = { height = 0.5 } },
       { ft = 'gitsigns-blame', title = 'Blame' },
+      { ft = 'undotree', title = 'Undotree' },
     },
   },
 }
