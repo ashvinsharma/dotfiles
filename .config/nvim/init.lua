@@ -185,6 +185,54 @@ vim.filetype.add {
     tmpl = 'gotmpl',
     gotmpl = 'gotmpl',
     fabro = 'dot',
+    -- jsonnet_ls declares filetypes {'jsonnet', 'libsonnet'} -- 'jsonnet' is
+    -- already a built-in Neovim filetype, 'libsonnet' (library/import files,
+    -- e.g. Grafonnet) isn't, so it silently never got the LSP attached.
+    libsonnet = 'libsonnet',
+  },
+}
+
+-- Helm chart detection: helm_ls declares filetypes {'helm', 'yaml.helm-values'}
+-- -- neither is a filetype Neovim detects on its own, so despite being
+-- installed via Mason, it never attached to anything.
+--
+-- Matched by *path*, not extension, since chart templates and values files
+-- are plain .yaml/.yml/.tpl -- gated on a sibling Chart.yaml so a
+-- coincidentally-named templates/ or values.yaml outside a real chart
+-- (Ansible roles also use templates/, for instance) doesn't get mistagged.
+--
+-- Deliberately NOT a compound filetype ("yaml.helm") for templates: FileType
+-- autocmd patterns (which is what LSP client attachment keys off) only
+-- match the exact filetype string, not each dot-separated component --
+-- unlike vim.treesitter.language.get_lang(), which *is* dot-aware. So
+-- 'yaml.helm' would get yaml highlighting but never trigger helm_ls (whose
+-- pattern is the bare string "helm"), while plain 'helm' gets the LSP
+-- working -- and, as a bonus, nvim-treesitter has its own dedicated `helm`
+-- parser (auto-installs the first time this filetype is seen), which
+-- handles the `{{ }}` template directives properly instead of yaml's
+-- grammar choking on them. values.yaml uses the exact compound string
+-- "yaml.helm-values" instead, since that's one of helm_ls's *and*
+-- yamlls's literal declared filetypes -- an exact match for both, and
+-- still yaml-highlighted since "yaml" is a real dot-component for
+-- get_lang().
+local function has_chart_yaml(dir)
+  return vim.fn.filereadable(dir .. '/Chart.yaml') == 1
+end
+
+vim.filetype.add {
+  pattern = {
+    ['.*/templates/.*%.ya?ml'] = function(path)
+      return has_chart_yaml(vim.fs.dirname(vim.fs.dirname(path))) and 'helm' or nil
+    end,
+    ['.*/templates/.*%.tpl'] = function(path)
+      return has_chart_yaml(vim.fs.dirname(vim.fs.dirname(path))) and 'helm' or nil
+    end,
+    ['.*/templates/NOTES%.txt'] = function(path)
+      return has_chart_yaml(vim.fs.dirname(vim.fs.dirname(path))) and 'helm' or nil
+    end,
+    ['.*/values%.ya?ml'] = function(path)
+      return has_chart_yaml(vim.fs.dirname(path)) and 'yaml.helm-values' or nil
+    end,
   },
 }
 
