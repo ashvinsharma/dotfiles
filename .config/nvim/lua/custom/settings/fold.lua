@@ -68,3 +68,22 @@ vim.opt.foldtext = 'v:lua.CustomFoldText()'
 
 -- remove the trailing characters after vim.opt.foldtext
 vim.opt.fillchars:append { fold = ' ' }
+
+-- l/e/E are deliberate "step into this exact spot" motions -- unlike j/k
+-- (pure vertical scanning, fine to leave a fold closed for), pressing one of
+-- these means you want to actually reach text at/after the cursor. But
+-- 'foldopen' (which already includes "hor" for horizontal motions) only
+-- auto-opens a fold when a motion newly crosses INTO it; if you're already
+-- sitting on the fold's collapsed line (landed there via j/k), Vim doesn't
+-- consider l/e/E from here to be "entering" it, so they silently do nothing
+-- useful -- the real line only has as much text as the actual first line of
+-- the fold, not the extra content the foldtext above appends after " ... ".
+-- zv ("view cursor line": open just enough folds to un-fold the cursor's
+-- line) is a no-op when the cursor isn't on a closed fold, so prefixing it
+-- unconditionally is safe. v:count1 is re-inserted so counts like `3l`/`2e`
+-- still work.
+for _, key in ipairs { 'l', 'e', 'E' } do
+  vim.keymap.set('n', key, function()
+    return 'zv' .. vim.v.count1 .. key
+  end, { expr = true, desc = 'Open fold under cursor, then ' .. key })
+end
