@@ -114,6 +114,8 @@ fi
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 alias by="bundle && yarn"
+alias lg="lazygit"
+alias n="nvim"
 alias watch="watch -c"
 alias kx=kubectx
 alias kns=kubens
