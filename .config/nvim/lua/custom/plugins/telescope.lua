@@ -28,6 +28,11 @@ return { -- Fuzzy Finder (files, lsp, etc)
     -- kind of list+preview layout.
     { 'debugloop/telescope-undo.nvim' },
 
+    -- Popup file browser (create/rename/move/delete) rooted at the current
+    -- buffer's directory -- lighter-weight than opening the persistent
+    -- Neo-tree sidebar (<leader>e) for one-off file operations.
+    { 'nvim-telescope/telescope-file-browser.nvim' },
+
     -- Useful for getting pretty icons, but requires a Nerd Font.
     { 'nvim-tree/nvim-web-devicons', enabled = vim.g.have_nerd_font },
   },
@@ -158,6 +163,13 @@ return { -- Fuzzy Finder (files, lsp, etc)
           -- Telescope's own UI chrome instead of a separate popup.
           prompt_title = 'Undo History  (u restore · y/Y yank +/-)',
         },
+        file_browser = {
+          -- Root the browser at the current buffer's directory rather than cwd.
+          path = '%:p:h',
+          hijack_netrw = true,
+          hidden = true,
+          respect_gitignore = false,
+        },
       },
     }
 
@@ -165,6 +177,7 @@ return { -- Fuzzy Finder (files, lsp, etc)
     pcall(require('telescope').load_extension, 'fzf')
     pcall(require('telescope').load_extension, 'ui-select')
     pcall(require('telescope').load_extension, 'undo')
+    pcall(require('telescope').load_extension, 'file_browser')
 
     -- See `:help telescope.builtin`
     local builtin = require 'telescope.builtin'
@@ -192,9 +205,12 @@ return { -- Fuzzy Finder (files, lsp, etc)
     vim.keymap.set('n', '<leader>sr', builtin.resume, { desc = '[S]earch [R]esume' })
     vim.keymap.set('n', '<leader>s.', builtin.oldfiles, { desc = '[S]earch Recent Files ("." for repeat)' })
     vim.keymap.set('n', '<leader><leader>', buffers_sorted_by_recency, { desc = '[ ] Find existing buffers' })
-    vim.keymap.set('n', '<leader>u', function()
+    vim.keymap.set('n', '<leader>su', function()
       require('telescope').extensions.undo.undo()
-    end, { desc = 'Toggle [U]ndo tree' })
+    end, { desc = '[S]earch [U]ndo history' })
+    vim.keymap.set('n', '<leader>sb', function()
+      require('telescope').extensions.file_browser.file_browser()
+    end, { desc = '[S]earch file [B]rowser' })
 
     -- Slightly advanced example of overriding default behavior and theme
     vim.keymap.set('n', '<leader>/', function()
