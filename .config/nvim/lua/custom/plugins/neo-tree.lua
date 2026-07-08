@@ -18,7 +18,8 @@ return {
   lazy = true,
   keys = {
     { '<leader>e', '<cmd>Neotree toggle<CR>', desc = 'NeoTree toggle' },
-    { '<leader>ge', '<cmd>Neotree toggle git_status<CR>', desc = 'NeoTree toggle git changes pane' },
+    -- <leader>tg (git-status pane) lives in custom/plugins/gitsigns.lua,
+    -- merged into this same plugin spec by name -- see the comment there.
   },
   cmd = 'Neotree',
   ---@module "neo-tree"

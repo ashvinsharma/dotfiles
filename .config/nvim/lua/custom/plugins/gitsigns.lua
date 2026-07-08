@@ -1,6 +1,16 @@
 return {
   { 'tpope/vim-fugitive' },
   {
+    -- Keys-only fragment: lazy.nvim merges this into the real
+    -- 'nvim-neo-tree/neo-tree.nvim' spec (custom/plugins/neo-tree.lua) by
+    -- plugin name. Kept here instead of there so every git-related keymap
+    -- lives in one file -- this one just happens to be Neo-tree-backed.
+    'nvim-neo-tree/neo-tree.nvim',
+    keys = {
+      { '<leader>tg', '<cmd>Neotree toggle git_status<CR>', desc = '[T]oggle [G]it status pane' },
+    },
+  },
+  {
     'kdheepak/lazygit.nvim',
     cmd = 'LazyGit',
     keys = {

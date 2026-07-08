@@ -7,10 +7,12 @@ return {
   lazy = false,
   enabled = true,
   keys = {
-    -- Will use Telescope if installed or a vim.ui.select picker otherwise
-    { '<leader>wg', '<cmd>AutoSession search<CR>', desc = 'Session search' },
-    { '<leader>ws', '<cmd>AutoSession save<CR>', desc = 'Save session' },
-    { '<leader>wa', '<cmd>AutoSession toggle<CR>', desc = 'Toggle autosave' },
+    -- <leader>S* = Session (capital, to avoid reading as "window" the way
+    -- a lowercase <leader>w* would). Will use Telescope if installed or a
+    -- vim.ui.select picker otherwise.
+    { '<leader>Sf', '<cmd>AutoSession search<CR>', desc = '[S]ession [F]ind' },
+    { '<leader>Ss', '<cmd>AutoSession save<CR>', desc = '[S]ession [S]ave' },
+    { '<leader>Sa', '<cmd>AutoSession toggle<CR>', desc = '[S]ession toggle [A]utosave' },
   },
   ---enables autocomplete for opts
   ---@module "auto-session"
