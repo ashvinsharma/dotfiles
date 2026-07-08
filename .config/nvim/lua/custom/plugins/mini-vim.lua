@@ -26,6 +26,24 @@ return { -- Collection of various small independent plugins/modules
     -- atomic paint) -- see the comment there.
     require('mini.animate').setup()
 
+    -- Highlights every other occurrence of the word under the cursor
+    -- (MiniCursorword, underline by default) after a short delay, so
+    -- moving off a word doesn't leave stale highlights behind.
+    require('mini.cursorword').setup()
+
+    -- Highlights TODO/FIXME/HACK/NOTE in comments (replaces
+    -- folke/todo-comments.nvim, which was only used for this) plus a color
+    -- swatch on hex color codes wherever they appear (CSS, configs, etc.).
+    require('mini.hipatterns').setup {
+      highlighters = {
+        fixme = { pattern = '%f[%w]()FIXME()%f[%W]', group = 'MiniHipatternsFixme' },
+        hack = { pattern = '%f[%w]()HACK()%f[%W]', group = 'MiniHipatternsHack' },
+        todo = { pattern = '%f[%w]()TODO()%f[%W]', group = 'MiniHipatternsTodo' },
+        note = { pattern = '%f[%w]()NOTE()%f[%W]', group = 'MiniHipatternsNote' },
+        hex_color = require('mini.hipatterns').gen_highlighter.hex_color(),
+      },
+    }
+
     -- Simple and easy statusline.
     --  You could remove this setup call if you don't like it,
     --  and try some other statusline plugin
