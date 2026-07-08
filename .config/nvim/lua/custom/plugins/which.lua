@@ -50,6 +50,7 @@ return { -- Useful plugin to show you pending keybinds.
       { '<leader>g', group = '[G]it', mode = { 'n', 'v' } },
       { '<leader>c', group = '[C]opy path', mode = { 'n' } },
       { '<leader>w', group = '[W]orkspace', mode = { 'n' } },
+      { '<leader>r', group = '[R]est', mode = { 'n' } },
     },
   },
 }
