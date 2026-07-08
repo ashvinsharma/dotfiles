@@ -64,6 +64,31 @@ return {
           -- to 3.89:1 even as background contrast improves, so this is the
           -- best point on the curve, not just "lighter is better".
           Visual = { bg = '#666667' },
+          -- mini.cursorword defaults to linking MiniCursorword/Current to
+          -- LspReferenceText, which carbonfox points at the same sel0 base
+          -- as Visual's own un-overridden default (#2a2a2a, 1.26:1 against
+          -- #161616 -- the exact faintness Visual was overridden for
+          -- above). Cursorword can highlight many words across the visible
+          -- screen at once though, not one selection, so reusing Visual's
+          -- gray would read as "everything is selected" -- a distinct blue
+          -- hue instead. #336b9e measures 3.22:1 against the background
+          -- (clears the WCAG 3:1 non-text floor) and 5.1:1 for normal text
+          -- sitting on top of it (clears the 4.5:1 AA text floor).
+          MiniCursorword = { bg = '#336b9e' },
+          MiniCursorwordCurrent = { bg = '#336b9e' },
+          -- Default Folded bg (#252525) is 1.18:1 against #161616 -- with
+          -- foldcolumn=0 (no gutter indicator, see fold.lua) this is the
+          -- only visual cue a line is a closed fold, and it's nearly
+          -- invisible. #5c6470 clears the WCAG 3:1 non-text floor (3.03:1)
+          -- while staying distinct in hue from Visual's neutral gray
+          -- (#666667) and MiniCursorword's blue (#336b9e) above -- it
+          -- shouldn't read as "selected" or "cursor-matched". Default fg
+          -- (#7b7c7e) was tuned for the old, darker bg and drops to 1.43:1
+          -- against this one, so it's swapped for Normal's fg (5.43:1);
+          -- most fold text is drawn with real treesitter colors via
+          -- CustomFoldText anyway (fold.lua) -- this only covers the
+          -- indentation run and the post-foldtext fill column.
+          Folded = { bg = '#5c6470', fg = '#f2f4f8' },
         },
       },
     }
