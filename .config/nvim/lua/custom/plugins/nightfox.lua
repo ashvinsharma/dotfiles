@@ -53,6 +53,17 @@ return {
           DiffChange = { bg = '#242b37' },
           DiffTextAdd = { bg = '#246d4e' },
           DiffText = { bg = '#9d4370' },
+          -- Default Visual bg is sel0 (#2a2a2a) against a #161616
+          -- background -- 1.26:1 contrast, below WCAG's 3:1 floor for
+          -- non-text UI, so a selection is barely distinguishable from the
+          -- unselected buffer. Blending 40% toward the theme's own `white`
+          -- accent (#dfdfe0) lands on #666667: 3.16:1 against the
+          -- background (crosses the 3:1 floor) while keeping text sitting
+          -- on top of it at 5.21:1 (above the 4.5:1 AA text minimum). One
+          -- step further (50%, #7a7a7b) actually regresses text contrast
+          -- to 3.89:1 even as background contrast improves, so this is the
+          -- best point on the curve, not just "lighter is better".
+          Visual = { bg = '#666667' },
         },
       },
     }
