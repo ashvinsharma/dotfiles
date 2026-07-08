@@ -17,5 +17,9 @@ return {
       { ft = 'gitsigns-blame', title = 'Blame' },
       { ft = 'undotree', title = 'Undotree' },
     },
+    bottom = {
+      -- IntelliJ's Problems tool window.
+      { ft = 'trouble', title = 'Problems', size = { height = 0.3 } },
+    },
   },
 }
