@@ -1,5 +1,5 @@
 font-family = JetBrainsMono Nerd Font Mono
-font-size = 15
+font-size = 14
 font-thicken = true
 
 window-padding-x = 15
@@ -31,7 +31,7 @@ palette = 13=#b043d1
 palette = 14=#3fdcee
 palette = 15=#bebec1
 
-background-opacity = 0.7
+background-opacity = 0.9
 background-blur = 40
 cursor-style = block
 cursor-style-blink = false
