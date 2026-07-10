@@ -38,3 +38,4 @@ cursor-style-blink = false
 bold-color = bright
 macos-option-as-alt = left
 scrollback-limit = 100000000
+macos-titlebar-style=tabs
