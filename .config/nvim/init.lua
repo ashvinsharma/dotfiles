@@ -98,6 +98,9 @@ vim.g.have_nerd_font = true
 -- NOTE: You can change these options as you wish!
 --  For more options, you can see `:help option-list`
 
+-- Make rg run as vimgrep
+vim.opt.grepprg = 'rg --vimgrep '
+vim.opt.grepformat = '%f:%l:%c:%m'
 -- Make line numbers default
 vim.opt.number = true
 -- You can also add relative line numbers, to help with jumping.
