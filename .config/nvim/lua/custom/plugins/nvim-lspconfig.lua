@@ -476,7 +476,22 @@ return {
         cmd = { 'postgres-language-server', 'lsp-proxy' },
       },
 
-      gopls = {},
+      gopls = {
+        mason = false,
+        -- The mise `gopls` shim re-derives its *entire* toolchain (GOROOT,
+        -- PATH, etc.) from its own invocation cwd, ignoring whatever PATH
+        -- it inherits -- so it needs to actually run from the project root,
+        -- not wherever nvim's own process happened to launch from (`cmd`
+        -- as a plain string[] spawns with cwd = nvim's process cwd, since
+        -- nothing in vim.lsp defaults cmd_cwd from root_dir). Spawning it
+        -- manually here lets us pass the already-resolved `config.root_dir`
+        -- as cwd instead.
+        cmd = function(dispatchers, config)
+          return vim.lsp.rpc.start({ vim.fn.expand '~/.local/share/mise/shims/gopls' }, dispatchers, {
+            cwd = config.root_dir,
+          })
+        end,
+      },
 
       yamlls = {},
 
@@ -539,40 +554,17 @@ return {
     -- (project Gemfile / `gem install`, mise shim, etc.) -- skip them here
     -- so mason-tool-installer doesn't fight that with its own install.
     local non_mason_servers = {}
+    local ensure_installed = { 'stylua' }
     for server_name, server in pairs(servers) do
       if server.mason == false then
         table.insert(non_mason_servers, server_name)
+      else
+        table.insert(ensure_installed, server_name)
       end
     end
-    local ensure_installed = vim.tbl_filter(function(name)
-      return not vim.tbl_contains(non_mason_servers, name)
-    end, vim.tbl_keys(servers or {}))
-    vim.list_extend(ensure_installed, {
-      'stylua', -- Used to format Lua code
-    })
+
     require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
-    -- mason-lspconfig v2.0 removed the `handlers`-based setup callback used
-    -- above in favor of Neovim's native vim.lsp.config()/vim.lsp.enable()
-    -- API (see mason-lspconfig.nvim's CHANGELOG.md, "Removed Features" under
-    -- 2.0.0) -- the `handlers` table above is silently ignored by current
-    -- versions, meaning every override in `servers` (capabilities merging,
-    -- lua_ls settings, etc.) was silently never applied. Configure each
-    -- server directly via vim.lsp.config(), then let mason-lspconfig's
-    -- automatic_enable (on by default) call vim.lsp.enable() for whichever
-    -- ones it manages.
-    --
-    -- This used to be deferred to VimEnter so a project's own
-    -- .nvim/lsp/*.lua ('exrc', loaded after this `config` function but
-    -- before VimEnter) could still win the vim.lsp.config() race -- see
-    -- git history. Now that no project uses that mechanism, deferring only
-    -- hurts: nvim loads the file given on the command line (firing
-    -- FileType, and with it mason-lspconfig's *default* autostart for
-    -- whatever it has installed) *before* VimEnter, so for that first
-    -- buffer the override below used to lose the race to nvim-lspconfig's
-    -- bundled lsp/*.lua defaults every time. Running it inline instead
-    -- guarantees it's registered before any buffer -- and therefore any
-    -- FileType event -- can fire.
     for server_name, server in pairs(servers) do
       server.capabilities = vim.tbl_deep_extend('force', {}, capabilities, server.capabilities or {})
       vim.lsp.config(server_name, server)
