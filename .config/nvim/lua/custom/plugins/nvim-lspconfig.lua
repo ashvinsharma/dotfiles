@@ -59,19 +59,6 @@ return {
           vim.keymap.set(mode, keys, func, { buffer = event.buf, desc = 'LSP: ' .. desc })
         end
 
-        -- This function resolves a difference between neovim nightly (version 0.11) and stable (version 0.10)
-        ---@param client vim.lsp.Client
-        ---@param method vim.lsp.protocol.Method
-        ---@param bufnr? integer some lsp support methods only in specific files
-        ---@return boolean
-        local function client_supports_method(client, method, bufnr)
-          if vim.fn.has 'nvim-0.11' == 1 then
-            return client:supports_method(method, bufnr)
-          else
-            return client.supports_method(method, { bufnr = bufnr })
-          end
-        end
-
         -- Forward-declared: open_md_popup, show_hover_at, and
         -- setup_nested_hover call each other (a hover popup can trigger
         -- another nested hover popup, and drilling back out reopens a
@@ -253,7 +240,7 @@ return {
             if word == '' then
               return
             end
-            if not client_supports_method(client, vim.lsp.protocol.Methods.workspace_symbol) then
+            if not client:supports_method(vim.lsp.protocol.Methods.workspace_symbol) then
               vim.notify('LSP server does not support workspace symbol search', vim.log.levels.WARN)
               return
             end
@@ -276,7 +263,7 @@ return {
 
               if loc.range then
                 drill_to(loc.uri, loc.range.start)
-              elseif client_supports_method(client, vim.lsp.protocol.Methods.workspaceSymbol_resolve) then
+              elseif client:supports_method(vim.lsp.protocol.Methods.workspaceSymbol_resolve) then
                 client:request(vim.lsp.protocol.Methods.workspaceSymbol_resolve, sym, function(rerr, resolved)
                   if rerr or not resolved or not resolved.location.range then
                     vim.notify('Could not resolve location for "' .. word .. '"', vim.log.levels.INFO)
@@ -388,16 +375,13 @@ return {
         --  the definition of its *type*, not where it was *defined*.
         map('grt', require('telescope.builtin').lsp_type_definitions, '[G]oto [T]ype Definition')
 
-        -- (client_supports_method is defined earlier in this callback now,
-        -- alongside the F1 hover/nested-hover setup that also needs it.)
-
         -- The following two autocommands are used to highlight references of the
         -- word under your cursor when your cursor rests there for a little while.
         --    See `:help CursorHold` for information about when this is executed
         --
         -- When you move your cursor, the highlights will be cleared (the second autocommand).
         local client = vim.lsp.get_client_by_id(event.data.client_id)
-        if client and client_supports_method(client, vim.lsp.protocol.Methods.textDocument_documentHighlight, event.buf) then
+        if client and client:supports_method(vim.lsp.protocol.Methods.textDocument_documentHighlight, event.buf) then
           local highlight_augroup = vim.api.nvim_create_augroup('kickstart-lsp-highlight', { clear = false })
           vim.api.nvim_create_autocmd({ 'CursorHold', 'CursorHoldI' }, {
             buffer = event.buf,
@@ -424,13 +408,156 @@ return {
         -- code, if the language server you are using supports them
         --
         -- This may be unwanted, since they displace some of your code
-        if client and client_supports_method(client, vim.lsp.protocol.Methods.textDocument_inlayHint, event.buf) then
+        if client and client:supports_method(vim.lsp.protocol.Methods.textDocument_inlayHint, event.buf) then
           map('<leader>th', function()
             vim.lsp.inlay_hint.enable(not vim.lsp.inlay_hint.is_enabled { bufnr = event.buf })
           end, '[T]oggle Inlay [H]ints')
         end
+
+        -- Enable CodeLens (e.g. gopls's "run test"/"go mod tidy" lenses,
+        -- see the `codelenses` setting on gopls below) for any server that
+        -- supports it. `vim.lsp.codelens.enable` (added in 0.12) handles
+        -- fetching and refreshing the lenses itself -- no manual
+        -- BufEnter/CursorHold/InsertLeave refresh autocmd needed, that was
+        -- only required on 0.10/0.11.
+        if client and client:supports_method(vim.lsp.protocol.Methods.textDocument_codeLens, event.buf) then
+          vim.lsp.codelens.enable(true, { bufnr = event.buf })
+
+          -- Neovim's own unconditional default keymap for `grx` (see
+          -- `:help grx`) calls vim.lsp.codelens.run(), which has two gaps:
+          --
+          -- 1. It only matches a lens whose range starts on the *exact*
+          --    cursor line, but gopls puts a function's lens on its
+          --    signature line -- so `grx` fails with "No codelens at
+          --    current line" anywhere else in the function body. Fixed by
+          --    walking up the treesitter tree from the cursor to find the
+          --    enclosing function/method declaration and running the lens
+          --    at *its* line instead. Falls back to the exact cursor line
+          --    when there's no enclosing function -- e.g. go.mod's
+          --    file-level tidy/vendor/upgrade_dependency lenses, or no
+          --    treesitter parser available.
+          --
+          -- 2. It calls client:exec_cmd() with no completion callback, so
+          --    it purely waits on the server to *proactively* push a
+          --    `workspace/codeLens/refresh` notification once the command
+          --    finishes -- if gopls doesn't send one for a given command
+          --    (or delays it), the old lens text just sits there stale
+          --    until something else happens to re-trigger a fetch (e.g.
+          --    `:e`). Fixed by driving exec_cmd ourselves so we can force
+          --    a refresh both immediately on response and once more after
+          --    a short delay, in case gopls's own work continues async
+          --    past the point it replies. Also shows an explicit
+          --    "Running..." notification up front, since we can't rely on
+          --    gopls emitting $/progress for every command either.
+          --
+          -- Only overridden in buffers where CodeLens is actually
+          -- supported, so `grx` still falls through to Neovim's default
+          -- elsewhere.
+          map('grx', function()
+            local bufnr = vim.api.nvim_get_current_buf()
+
+            local node = vim.treesitter.get_node()
+            while node do
+              local node_type = node:type()
+              if node_type == 'function_declaration' or node_type == 'method_declaration' then
+                break
+              end
+              node = node:parent()
+            end
+            local target_line = node and node:range() or (vim.api.nvim_win_get_cursor(0)[1] - 1)
+
+            local candidates = {}
+            for _, l in ipairs(vim.lsp.codelens.get { bufnr = bufnr }) do
+              if l.lens.range.start.line == target_line and l.lens.command then
+                table.insert(candidates, l)
+              end
+            end
+            if #candidates == 0 then
+              vim.notify('No codelens at current line', vim.log.levels.INFO)
+              return
+            end
+
+            local function refresh(client_id)
+              -- vim.lsp.codelens is lazy-loaded on first access, and it's
+              -- the codelens module's own top-level code that registers
+              -- itself into Capability.all -- force that load first, same
+              -- as the title-icon patch below. Capability.all.codelens is
+              -- the shared class table, not a buffer instance -- the
+              -- actual per-buffer state (client_state, bufnr, etc.) lives
+              -- in its .active[bufnr], so :request() has to be called on
+              -- that instance, not the class itself.
+              require 'vim.lsp.codelens'
+              local provider = require('vim.lsp._capability').all.codelens.active[bufnr]
+              if provider then
+                provider:request(client_id)
+              end
+            end
+
+            local function run(candidate)
+              local client = assert(vim.lsp.get_client_by_id(candidate.client_id))
+              vim.notify('Running: ' .. candidate.lens.command.title, vim.log.levels.INFO)
+              client:exec_cmd(candidate.lens.command, { bufnr = bufnr }, function(err, result)
+                if err then
+                  vim.notify('CodeLens command failed: ' .. err.message, vim.log.levels.ERROR)
+                  return
+                end
+                if result ~= nil then
+                  vim.notify(vim.inspect(result), vim.log.levels.INFO)
+                end
+                refresh(client.id)
+              end)
+            end
+
+            if #candidates == 1 then
+              run(candidates[1])
+            else
+              vim.ui.select(candidates, {
+                prompt = 'Code lenses: ',
+                format_item = function(c)
+                  return c.lens.command.title
+                end,
+              }, function(choice)
+                if choice then
+                  run(choice)
+                end
+              end)
+            end
+          end, 'Run CodeLens for enclosing function')
+        end
       end,
     })
+
+    -- Prepend a play icon to every CodeLens title (e.g. "Run test" ->
+    -- "▶ Run test"). Reusing the same plain '▶' already used for DAP's
+    -- play icon elsewhere (see custom/plugins/debug.lua) rather than a
+    -- nerd-font codepoint, since this one's guaranteed to render right.
+    --
+    -- There's no public formatter hook for this -- unlike diagnostics'
+    -- virtual_text.format below, codelens rendering pulls lens data
+    -- straight from an internal per-capability Provider object with no
+    -- config surface. `Capability.all` (vim.lsp._capability) is the one
+    -- place that Provider is reachable from outside its own module, so
+    -- wrap its response handler to mutate each lens's title before
+    -- Neovim's own (untouched) renderer ever sees it. Private/internal
+    -- API -- if a future Neovim version changes this, the icon just
+    -- stops appearing, it doesn't break CodeLens itself.
+    do
+      -- vim.lsp.codelens is itself lazy-loaded on first access (see
+      -- vim/lsp.lua's submodule table), and it's the codelens module's own
+      -- top-level code that registers itself into Capability.all -- so
+      -- force that load now, or `all.codelens` below is still nil.
+      require 'vim.lsp.codelens'
+      local codelens_provider = require('vim.lsp._capability').all.codelens
+      local on_codelens_response = codelens_provider.handler
+      codelens_provider.handler = function(self, err, result, ctx)
+        for _, lens in ipairs(result or {}) do
+          if lens.command and lens.command.title then
+            lens.command.title = '▶ ' .. lens.command.title
+          end
+        end
+        return on_codelens_response(self, err, result, ctx)
+      end
+    end
 
     -- Diagnostic Config
     -- See :help vim.diagnostic.Opts
@@ -491,6 +618,21 @@ return {
             cwd = config.root_dir,
           })
         end,
+        -- gopls disables all CodeLenses by default; opt into the useful
+        -- ones (see the CodeLens enable/refresh block in the LspAttach
+        -- autocmd above, and `grx` to run the lens under the cursor).
+        settings = {
+          gopls = {
+            codelenses = {
+              generate = true, -- run `go generate`
+              test = true, -- run `go test`/benchmarks
+              tidy = true, -- run `go mod tidy`
+              upgrade_dependency = true, -- upgrade a dependency in go.mod
+              vendor = true, -- run `go mod vendor`
+              run_govulncheck = true, -- run govulncheck
+            },
+          },
+        },
       },
 
       yamlls = {},
