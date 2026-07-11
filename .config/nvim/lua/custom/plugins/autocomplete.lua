@@ -46,7 +46,6 @@ return { -- Autocompletion
     cmp.setup {
       formatting = {
         format = lspkind.cmp_format {
-          mode = 'text', -- show only symbol annotations
           maxwidth = {
             -- prevent the popup from showing more than provided characters (e.g 50 will not show more than 50 characters)
             -- can also be a function to dynamically calculate max width such as
@@ -56,6 +55,14 @@ return { -- Autocompletion
           },
           ellipsis_char = '...', -- when popup menu exceed maxwidth, the truncated part would show ellipsis_char instead (must define maxwidth first)
           show_labelDetails = true, -- show labelDetails in menu. Disabled by default
+          menu = {
+            lazydev = '[lazydev]',
+            codeium = '[Windsurf]',
+            nvim_lsp = '[LSP]',
+            luasnip = '[Snip]',
+            path = '[path]',
+            nvim_lsp_signature_help = '[LSP signature]',
+          },
         },
       },
       snippet = {
