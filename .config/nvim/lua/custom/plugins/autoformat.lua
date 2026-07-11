@@ -48,6 +48,7 @@ return { -- Autoformat
       zsh = { 'shfmt' },
       yaml = { 'yamlfmt' },
       terraform = { 'tofu_fmt' },
+      sql = { 'pg_format' },
     },
     -- Custom formatters not built into conform
     formatters = {

@@ -599,10 +599,6 @@ return {
     --  - settings (table): Override the default settings passed when initializing the server.
     --        For example, to see the options for `lua_ls`, you could go to: https://luals.github.io/wiki/settings/
     local servers = {
-      ['postgres-language-server'] = {
-        cmd = { 'postgres-language-server', 'lsp-proxy' },
-      },
-
       gopls = {
         mason = false,
         -- The mise `gopls` shim re-derives its *entire* toolchain (GOROOT,
@@ -696,7 +692,7 @@ return {
     -- (project Gemfile / `gem install`, mise shim, etc.) -- skip them here
     -- so mason-tool-installer doesn't fight that with its own install.
     local non_mason_servers = {}
-    local ensure_installed = { 'stylua' }
+    local ensure_installed = { 'stylua', 'pgformatter' }
     for server_name, server in pairs(servers) do
       if server.mason == false then
         table.insert(non_mason_servers, server_name)
