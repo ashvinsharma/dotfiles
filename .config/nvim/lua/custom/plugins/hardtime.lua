@@ -7,5 +7,6 @@ return {
     -- Applies to all restricted_keys (h/j/k/l and a few others), not just
     -- j/k specifically -- hardtime has no per-key threshold.
     max_count = 20,
+    disable_mouse = false,
   },
 }
