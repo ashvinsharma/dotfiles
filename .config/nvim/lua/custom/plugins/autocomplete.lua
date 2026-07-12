@@ -18,12 +18,12 @@ return { -- Autocompletion
         -- `friendly-snippets` contains a variety of premade snippets.
         --    See the README about individual language/framework/plugin snippets:
         --    https://github.com/rafamadriz/friendly-snippets
-        -- {
-        --   'rafamadriz/friendly-snippets',
-        --   config = function()
-        --     require('luasnip.loaders.from_vscode').lazy_load()
-        --   end,
-        -- },
+        {
+          'rafamadriz/friendly-snippets',
+          config = function()
+            require('luasnip.loaders.from_vscode').lazy_load()
+          end,
+        },
       },
     },
     'saadparwaiz1/cmp_luasnip',
@@ -44,6 +44,7 @@ return { -- Autocompletion
     luasnip.config.setup {}
 
     cmp.setup {
+      preselect = cmp.PreselectMode.None,
       formatting = {
         format = lspkind.cmp_format {
           maxwidth = {
@@ -122,8 +123,13 @@ return { -- Autocompletion
           end
         end, { 'i', 's' }),
 
-        -- Escape: Abort completion
-        ['<Esc>'] = cmp.mapping.abort(),
+        -- Escape: Abort completion and leave Insert mode in a single press
+        ['<Esc>'] = cmp.mapping(function(fallback)
+          if cmp.visible() then
+            cmp.abort()
+          end
+          fallback()
+        end, { 'i', 's' }),
         ['<C-c>'] = cmp.mapping.abort(),
 
         -- Think of <c-l> as moving to the right of your snippet expansion.
@@ -155,8 +161,8 @@ return { -- Autocompletion
           group_index = 0,
         },
         { name = 'codeium' },
-        { name = 'nvim_lsp' },
         { name = 'luasnip' },
+        { name = 'nvim_lsp' },
         { name = 'path' },
         { name = 'nvim_lsp_signature_help' },
       },
