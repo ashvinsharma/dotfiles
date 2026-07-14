@@ -1,0 +1,494 @@
+{
+    "initialTimestamp": "2025-01-28T11:39:13.991Z",
+    "startOfDay": "04:00",
+    "startOfWeek": "Monday",
+    "durationDefault": 14400,
+    "landingpage": "/activity/ashsharma--20241227-M9QNN/view/",
+    "theme": "light",
+    "newReleaseCheckData": {
+        "isEnabled": true,
+        "nextCheckTime": "2026-07-15T15:32:21.010Z",
+        "howOftenToCheck": 86400,
+        "timesChecked": 0
+    },
+    "userSatisfactionPollData": {
+        "isEnabled": false,
+        "nextPollTime": "2025-02-19T11:17:55.048Z",
+        "timesPollIsShown": 1
+    },
+    "classes": [
+        {
+            "data": {
+                "color": "#68BC00",
+                "score": 10
+            },
+            "id": 0,
+            "name": [
+                "Work"
+            ],
+            "rule": {
+                "ignore_case": true,
+                "regex": ".*work.*",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {
+                "color": "#fc6d26"
+            },
+            "id": 1,
+            "name": [
+                "Work",
+                "Browser",
+                "GitLab.com"
+            ],
+            "rule": {
+                "ignore_case": true,
+                "regex": ".*gitlab\\.com.*",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {},
+            "id": 2,
+            "name": [
+                "Work",
+                "IDE"
+            ],
+            "rule": {
+                "ignore_case": true,
+                "regex": "RubyMine|IntelliJ IDEA|Goland|Windsurf",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {
+                "color": "#4b8900"
+            },
+            "id": 3,
+            "name": [
+                "Work",
+                "Terminal"
+            ],
+            "rule": {
+                "ignore_case": true,
+                "regex": "iTerm2",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {
+                "color": "#F33"
+            },
+            "id": 4,
+            "name": [
+                "Media"
+            ],
+            "rule": {
+                "type": "none"
+            }
+        },
+        {
+            "data": {
+                "color": "#F80"
+            },
+            "id": 5,
+            "name": [
+                "Media",
+                "Games"
+            ],
+            "rule": {
+                "regex": "Minecraft|RimWorld",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {
+                "color": "#F33"
+            },
+            "id": 6,
+            "name": [
+                "Media",
+                "Video"
+            ],
+            "rule": {
+                "regex": "YouTube|Plex|VLC",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {
+                "color": "#FCC400"
+            },
+            "id": 7,
+            "name": [
+                "Media",
+                "Social Media"
+            ],
+            "rule": {
+                "ignore_case": true,
+                "regex": "reddit|Facebook|Twitter|Instagram|devRant|LinkedIn",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {
+                "color": "#A8FC00"
+            },
+            "id": 8,
+            "name": [
+                "Media",
+                "Music"
+            ],
+            "rule": {
+                "ignore_case": true,
+                "regex": "Spotify|Deezer",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {
+                "color": "#9FF"
+            },
+            "id": 9,
+            "name": [
+                "Comms"
+            ],
+            "rule": {
+                "type": "none"
+            }
+        },
+        {
+            "id": 10,
+            "name": [
+                "Comms",
+                "IM"
+            ],
+            "rule": {
+                "regex": "Messenger|Telegram|Signal|WhatsApp|Rambox|Slack|Riot|Element|Discord|Nheko|NeoChat|Mattermost",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {},
+            "id": 11,
+            "name": [
+                "Comms",
+                "Email"
+            ],
+            "rule": {
+                "regex": "Gmail|Thunderbird|mutt|alpine|Inbox",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {
+                "color": "#CCC"
+            },
+            "id": 12,
+            "name": [
+                "Uncategorized"
+            ],
+            "rule": {
+                "type": "none"
+            }
+        },
+        {
+            "data": {
+                "color": "#666666"
+            },
+            "id": 13,
+            "name": [
+                "Productivity",
+                "Browser",
+                "ActivityWatch"
+            ],
+            "rule": {
+                "regex": "ActivityWatch",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {
+                "color": "#73D8FF"
+            },
+            "id": 14,
+            "name": [
+                "Productivity",
+                "AI Tools"
+            ],
+            "rule": {
+                "ignore_case": true,
+                "regex": "Perplexity",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {
+                "color": "#fb9e00"
+            },
+            "id": 15,
+            "name": [
+                "Work",
+                "Browser"
+            ],
+            "rule": {
+                "ignore_case": true,
+                "regex": "Chrome",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {},
+            "id": 16,
+            "name": [
+                "Work",
+                "Browser",
+                "Google Workspace"
+            ],
+            "rule": {
+                "ignore_case": true,
+                "regex": "(?:drive|docs|sheets|slides).google.com",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {},
+            "id": 17,
+            "name": [
+                "Work",
+                "Browser",
+                "Learn"
+            ],
+            "rule": {
+                "ignore_case": true,
+                "regex": "rubyonrails.org",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {},
+            "id": 18,
+            "name": [
+                "Misc"
+            ],
+            "rule": {
+                "type": "none"
+            }
+        },
+        {
+            "data": {
+                "color": "#D33115"
+            },
+            "id": 19,
+            "name": [
+                "Misc",
+                "Browser"
+            ],
+            "rule": {
+                "ignore_case": true,
+                "regex": "Firefox",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {
+                "color": "#009CE0"
+            },
+            "id": 20,
+            "name": [
+                "Work",
+                "Meeting"
+            ],
+            "rule": {
+                "ignore_case": true,
+                "regex": "zoom\\.us|Zoom Meeting",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {},
+            "id": 21,
+            "name": [
+                "Work",
+                "Comms"
+            ],
+            "rule": {
+                "ignore_case": false,
+                "regex": "Slack",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {
+                "color": "#AEA1FF"
+            },
+            "id": 22,
+            "name": [
+                "Personal"
+            ],
+            "rule": {
+                "type": "none"
+            }
+        },
+        {
+            "data": {},
+            "id": 23,
+            "name": [
+                "Personal",
+                "Browser"
+            ],
+            "rule": {
+                "regex": "Arc",
+                "type": "regex"
+            }
+        },
+        {
+            "data": {
+                "color": "#D33115"
+            },
+            "id": 24,
+            "name": [
+                "Personal",
+                "F1"
+            ],
+            "rule": {
+                "regex": "MultiViewer",
+                "type": "regex"
+            }
+        },
+        {
+            "id": 25,
+            "name": [
+                "Productivity"
+            ],
+            "rule": {
+                "type": "none"
+            }
+        },
+        {
+            "data": {},
+            "id": 26,
+            "name": [
+                "Work",
+                "Notion"
+            ],
+            "rule": {
+                "ignore_case": true,
+                "regex": "Notion",
+                "type": "regex"
+            }
+        },
+        {
+            "id": 27,
+            "name": [
+                "Productivity",
+                "Browser"
+            ],
+            "rule": {
+                "type": "none"
+            }
+        },
+        {
+            "name": [
+                "Personal",
+                "Mothership"
+            ],
+            "rule": {
+                "type": "regex",
+                "regex": "mothership",
+                "ignore_case": true
+            },
+            "id": 28,
+            "data": {
+                "color": "#B0BC00"
+            }
+        }
+    ],
+    "views": [
+        {
+            "elements": [
+                {
+                    "size": 3,
+                    "type": "top_apps"
+                },
+                {
+                    "size": 3,
+                    "type": "top_titles"
+                },
+                {
+                    "size": 3,
+                    "type": "timeline_barchart"
+                },
+                {
+                    "size": 3,
+                    "type": "top_categories"
+                },
+                {
+                    "size": 3,
+                    "type": "category_tree"
+                },
+                {
+                    "size": 3,
+                    "type": "category_sunburst"
+                }
+            ],
+            "id": "summary",
+            "name": "Summary"
+        },
+        {
+            "elements": [
+                {
+                    "size": 3,
+                    "type": "top_apps"
+                },
+                {
+                    "size": 3,
+                    "type": "top_titles"
+                }
+            ],
+            "id": "window",
+            "name": "Window"
+        },
+        {
+            "elements": [
+                {
+                    "size": 3,
+                    "type": "top_domains"
+                },
+                {
+                    "size": 3,
+                    "type": "top_urls"
+                }
+            ],
+            "id": "browser",
+            "name": "Browser"
+        },
+        {
+            "elements": [
+                {
+                    "size": 3,
+                    "type": "top_editor_files"
+                },
+                {
+                    "size": 3,
+                    "type": "top_editor_projects"
+                },
+                {
+                    "size": 3,
+                    "type": "top_editor_languages"
+                }
+            ],
+            "id": "editor",
+            "name": "Editor"
+        },
+        {
+            "elements": [],
+            "id": "myid",
+            "name": "myname"
+        }
+    ],
+    "requestTimeout": 31,
+    "useColorFallback": true,
+    "always_active_pattern": "Zoom Meeting|Facetime"
+}
