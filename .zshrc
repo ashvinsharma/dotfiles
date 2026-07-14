@@ -124,6 +124,10 @@ alias watchh="watch "
 alias rgi="rg -i"
 alias oc=opencode
 
+# echo "ashvin" C -- copies the output to clipboard
+alias -g C="| pbcopy"
+
+
 source $(brew --prefix)/share/zsh-autosuggestions/zsh-autosuggestions.zsh
 fpath+=("$(brew --prefix)/share/zsh/site-functions")
 source /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
