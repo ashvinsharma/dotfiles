@@ -692,7 +692,7 @@ return {
     -- (project Gemfile / `gem install`, mise shim, etc.) -- skip them here
     -- so mason-tool-installer doesn't fight that with its own install.
     local non_mason_servers = {}
-    local ensure_installed = { 'stylua', 'pgformatter' }
+    local ensure_installed = { 'stylua', 'pgformatter', 'jsonls' }
     for server_name, server in pairs(servers) do
       if server.mason == false then
         table.insert(non_mason_servers, server_name)
