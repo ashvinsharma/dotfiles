@@ -38,7 +38,8 @@ vim.keymap.set('n', '<leader>cr', function()
   end
 end, { desc = '[C]opy [R]elative path from Neo-tree' })
 
-vim.keymap.set('n', '<leader>cp', function()
+---@param line integer|{ [1]: integer, [2]: integer } single line, or a {start_line, end_line} range
+local function copy_permalink(line)
   if vim.bo.buftype ~= '' or vim.fn.expand '%:p' == '' then
     vim.notify('No file buffer to permalink', vim.log.levels.WARN)
     return
@@ -82,7 +83,6 @@ vim.keymap.set('n', '<leader>cp', function()
     return
   end
 
-  local line = vim.fn.line '.'
   local url, err = permalink.build_url(remote_url, sha, relative_path, line)
   if not url then
     vim.notify(err, vim.log.levels.ERROR)
@@ -91,4 +91,14 @@ vim.keymap.set('n', '<leader>cp', function()
 
   vim.fn.setreg('+', url)
   vim.notify('Copied permalink: ' .. url)
+end
+
+vim.keymap.set('n', '<leader>cp', function()
+  copy_permalink(vim.fn.line '.')
 end, { desc = '[C]opy [P]ermalink (current commit)' })
+
+vim.keymap.set('v', '<leader>cp', function()
+  local start_line = vim.fn.line "'<"
+  local end_line = vim.fn.line "'>"
+  copy_permalink { start_line, end_line }
+end, { desc = '[C]opy [P]ermalink for selection (current commit)' })

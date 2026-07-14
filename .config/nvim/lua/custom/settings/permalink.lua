@@ -41,10 +41,28 @@ function M.blob_segment(host)
   return '/-/blob/' -- default to GitLab's convention (also correct for self-hosted GitLab)
 end
 
+-- GitHub anchors ranges as '#L10-L20'; GitLab anchors ranges as '#L10-20'.
+---@param host string
+---@param start_line integer
+---@param end_line integer
+---@return string
+function M.line_fragment(host, start_line, end_line)
+  if start_line > end_line then
+    start_line, end_line = end_line, start_line
+  end
+  if start_line == end_line then
+    return '#L' .. start_line
+  end
+  if host:lower():find 'github%.com' then
+    return string.format('#L%d-L%d', start_line, end_line)
+  end
+  return string.format('#L%d-%d', start_line, end_line)
+end
+
 ---@param remote_url string
 ---@param sha string
 ---@param relative_path string
----@param line integer
+---@param line integer|{ [1]: integer, [2]: integer } single line, or a {start_line, end_line} range
 ---@return string? url
 ---@return string? err
 function M.build_url(remote_url, sha, relative_path, line)
@@ -52,7 +70,13 @@ function M.build_url(remote_url, sha, relative_path, line)
   if not host then
     return nil, path -- path holds the error message in this branch
   end
-  return string.format('https://%s/%s%s%s/%s#L%d', host, path, M.blob_segment(host), sha, relative_path, line)
+  local fragment
+  if type(line) == 'table' then
+    fragment = M.line_fragment(host, line[1], line[2])
+  else
+    fragment = '#L' .. line
+  end
+  return string.format('https://%s/%s%s%s/%s%s', host, path, M.blob_segment(host), sha, relative_path, fragment)
 end
 
 return M
