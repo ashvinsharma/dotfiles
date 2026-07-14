@@ -13,16 +13,14 @@ return {
           bufferline.style_preset.no_bold,
           bufferline.style_preset.no_italic,
         },
-        -- NOTE: uncomment this if you want tabs to not appear
-        -- above File explorer
-        -- offsets = {
-        --   {
-        --     -- text = 'File Explorer',
-        --     highlight = 'Directory',
-        --     separator = true,
-        --     filetype = 'neo-tree',
-        --   },
-        -- },
+        offsets = {
+          {
+            -- text = 'File Explorer',
+            highlight = 'Directory',
+            separator = true,
+            filetype = 'neo-tree',
+          },
+        },
       },
     }
   end,
