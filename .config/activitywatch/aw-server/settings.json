@@ -127,7 +127,7 @@
             ],
             "rule": {
                 "ignore_case": true,
-                "regex": "reddit|Facebook|Twitter|Instagram|devRant|LinkedIn",
+                "regex": "reddit|LinkedIn",
                 "type": "regex"
             }
         },
@@ -390,18 +390,18 @@
             }
         },
         {
+            "data": {
+                "color": "#B0BC00"
+            },
+            "id": 28,
             "name": [
                 "Personal",
                 "Mothership"
             ],
             "rule": {
-                "type": "regex",
+                "ignore_case": true,
                 "regex": "mothership",
-                "ignore_case": true
-            },
-            "id": 28,
-            "data": {
-                "color": "#B0BC00"
+                "type": "regex"
             }
         }
     ],
