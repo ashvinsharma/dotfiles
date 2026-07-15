@@ -8,7 +8,7 @@ return { -- Highlight, edit, and navigate code
     ts.setup {}
 
     local languages =
-      { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc', 'ruby', 'go', 'yaml', 'terraform', 'dot' }
+      { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc', 'ruby', 'go', 'yaml', 'terraform', 'dot', 'http' }
     ts.install(languages)
 
     -- Filetype -> treesitter language, wherever they don't already match
@@ -30,6 +30,7 @@ return { -- Highlight, edit, and navigate code
       yaml = 'yaml',
       terraform = 'terraform',
       dot = 'dot',
+      http = 'http',
     }
 
     vim.api.nvim_create_autocmd('FileType', {
