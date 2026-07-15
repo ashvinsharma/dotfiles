@@ -1,31 +1,73 @@
 return { -- Highlight, edit, and navigate code
   'nvim-treesitter/nvim-treesitter',
+  branch = 'main', -- `master` is frozen/archived; all parser+query updates land on `main` now.
+  lazy = false, -- main branch does not support lazy-loading.
   build = ':TSUpdate',
-  main = 'nvim-treesitter.configs', -- Sets main module to use for opts
-  -- [[ Configure Treesitter ]] See `:help nvim-treesitter`
-  opts = {
-    ensure_installed = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc', 'ruby', 'go', 'yaml', 'terraform', 'dot' },
-    -- Autoinstall languages that are not installed
-    auto_install = true,
-    highlight = {
-      enable = true,
-      -- Some languages depend on vim's regex highlighting system (such as Ruby) for indent rules.
-      --  If you are experiencing weird indenting issues, add the language to
-      --  the list of additional_vim_regex_highlighting and disabled languages for indent.
-      additional_vim_regex_highlighting = { 'ruby' },
-    },
-    indent = { enable = true, disable = { 'ruby' } },
-  },
-  config = function(_, opts)
-    require('nvim-treesitter.configs').setup(opts)
+  config = function()
+    local ts = require 'nvim-treesitter'
+    ts.setup {}
+
+    local languages =
+      { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc', 'ruby', 'go', 'yaml', 'terraform', 'dot' }
+    ts.install(languages)
+
+    -- Filetype -> treesitter language, wherever they don't already match
+    -- (main's vim.treesitter.start() needs the exact parser name).
+    -- luadoc/markdown_inline are injection-only parsers with no filetype of
+    -- their own, so they're installed above but have no entry here.
+    local ft_to_lang = {
+      sh = 'bash',
+      c = 'c',
+      diff = 'diff',
+      html = 'html',
+      lua = 'lua',
+      markdown = 'markdown',
+      query = 'query',
+      vim = 'vim',
+      help = 'vimdoc',
+      ruby = 'ruby',
+      go = 'go',
+      yaml = 'yaml',
+      terraform = 'terraform',
+      dot = 'dot',
+    }
+
+    vim.api.nvim_create_autocmd('FileType', {
+      pattern = vim.tbl_keys(ft_to_lang),
+      callback = function(args)
+        vim.treesitter.start(args.buf, ft_to_lang[vim.bo[args.buf].filetype])
+      end,
+    })
+
+    -- Treesitter-based indent for everything except ruby, which keeps its
+    -- native (non-treesitter) indentexpr -- mirrors the old
+    -- `indent.disable = { 'ruby' }` config. Vim's own regex-based syntax
+    -- highlighting for ruby (previously `additional_vim_regex_highlighting
+    -- = { 'ruby' }`) needs no equivalent here: vim.treesitter.start()
+    -- doesn't touch `syntax`, so it already runs alongside treesitter
+    -- highlighting by default.
+    local indent_fts = vim.tbl_filter(function(ft)
+      return ft ~= 'ruby'
+    end, vim.tbl_keys(ft_to_lang))
+
+    vim.api.nvim_create_autocmd('FileType', {
+      pattern = indent_fts,
+      callback = function(args)
+        vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+      end,
+    })
 
     -- Neovim 0.12 query predicates can hand a directive a *list* of nodes
-    -- for a capture instead of a single node. nvim-treesitter's `master`
-    -- branch is frozen/archived and its query_predicates.lua still assumes
-    -- a single node, so it crashes with "attempt to call method 'range'
-    -- (a nil value)" -- most visibly on markdown fenced-code-block
-    -- injections (e.g. via render-markdown.nvim).
-    -- https://github.com/nvim-treesitter/nvim-treesitter/issues/8636
+    -- for a capture instead of a single node. This broke nvim-treesitter's
+    -- OWN bundled directive handlers on the (frozen) `master` branch, which
+    -- still assumed a single node -- https://github.com/nvim-treesitter/nvim-treesitter/issues/8636.
+    -- `master`'s query_predicates.lua doesn't exist on `main` at all (the
+    -- whole module was dropped in the rewrite), so this specific crash path
+    -- can't happen anymore, but these custom directives are still what
+    -- nvim-treesitter's bundled markdown/html injection queries call by
+    -- name to resolve fenced-code-block/script-tag languages, so the
+    -- overrides themselves are still needed -- only the "why" (crash
+    -- workaround) is gone, not the directives' purpose.
     local query = require 'vim.treesitter.query'
 
     local function get_node(match, id)

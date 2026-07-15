@@ -1,10 +1,23 @@
+-- `-race` roughly triples per-run wall time (recompiles with instrumentation
+-- on every invocation) -- fine for CI/full-suite runs, too slow for
+-- iterate-on-one-test-in-the-editor. go_test_args as a function (rather than
+-- a static table) gets re-evaluated on every run regardless of how it's
+-- triggered -- keymap, `:Neotest`, or the summary window's own run mapping --
+-- so toggling this one variable is enough, no config edits/restarts needed.
+local race_enabled = false
+
 return { -- Test runner with gutter status + a results panel, like IntelliJ's test runner
   'nvim-neotest/neotest',
   dependencies = {
     'nvim-lua/plenary.nvim',
     'nvim-treesitter/nvim-treesitter',
     'nvim-neotest/nvim-nio',
-    'nvim-neotest/neotest-go',
+    {
+      'fredrikaverpil/neotest-golang',
+      version = '*',
+      -- `gotestsum` is already on PATH via mise (see debug.lua's mise-scoped
+      -- tooling comments) -- no build step needed to fetch it.
+    },
     -- Needs `rspec` in the project's Gemfile -- same mise-scoped-gem
     -- situation as ruby_lsp/rubocop/dap-ruby.
     'olimorris/neotest-rspec',
@@ -29,62 +42,89 @@ return { -- Test runner with gutter status + a results panel, like IntelliJ's te
       open_fn()
     end
 
+    local neotest = require 'neotest'
+
     return {
       {
         '<leader>Tt',
         function()
-          require('neotest').run.run()
+          neotest.run.run()
         end,
         desc = '[T]est run nearest',
       },
       {
         '<leader>Tf',
         function()
-          require('neotest').run.run(vim.fn.expand '%')
+          neotest.run.run(vim.fn.expand '%')
         end,
         desc = '[T]est run [F]ile',
       },
       {
         '<leader>Tl',
         function()
-          require('neotest').run.run_last()
+          neotest.run.run_last()
         end,
         desc = '[T]est run [L]ast',
       },
       {
         '<leader>TS',
         function()
-          toggle_by_filetype('neotest-summary', require('neotest').summary.open)
+          toggle_by_filetype('neotest-summary', neotest.summary.open)
         end,
         desc = '[T]est [S]ummary',
       },
       {
         '<leader>To',
         function()
-          require('neotest').output.open { enter = true }
+          neotest.output_panel.toggle()
         end,
         desc = '[T]est [O]utput',
       },
       {
         '<leader>TO',
         function()
-          toggle_by_filetype('neotest-output-panel', require('neotest').output_panel.open)
+          toggle_by_filetype('neotest-output-panel', neotest.output.open { enter = true })
         end,
         desc = '[T]est [O]utput panel',
       },
       {
         '<leader>Tx',
         function()
-          require('neotest').run.stop()
+          neotest.run.stop()
         end,
         desc = '[T]est stop',
+      },
+      {
+        '<leader>TR',
+        function()
+          race_enabled = not race_enabled
+          vim.notify('neotest: -race ' .. (race_enabled and 'enabled' or 'disabled'), vim.log.levels.INFO)
+        end,
+        desc = '[T]est [R]ace toggle',
       },
     }
   end,
   config = function()
-    require('neotest').setup {
+    local neotest = require 'neotest'
+
+    neotest.setup {
       adapters = {
-        require 'neotest-go',
+        -- Replaces neotest-go: that adapter never passed a `-run` flag to
+        -- `go test` at all (confirmed by reading its source -- no `-run`
+        -- anywhere), so every run -- nearest test, file, whatever --
+        -- silently executed the entire package and matched results back to
+        -- the selected position client-side. neotest-golang does real
+        -- per-position `-run` scoping via treesitter AST parsing.
+        require 'neotest-golang' {
+          runner = 'gotestsum',
+          go_test_args = function()
+            local args = { '-v', '-count=1' }
+            if race_enabled then
+              table.insert(args, '-race')
+            end
+            return args
+          end,
+        },
         require 'neotest-rspec',
       },
       -- Pass/fail icons next to the test line, not just in the summary panel.
@@ -97,6 +137,29 @@ return { -- Test runner with gutter status + a results panel, like IntelliJ's te
       -- lag"; left at 1 as a cheap precaution against spawning that many
       -- nested processes concurrently.
       discovery = { concurrent = 1 },
+      consumers = {
+        -- The client emits a "run" event on client/state whenever any run
+        -- is kicked off, no matter the entry point (keymap, `:Neotest`
+        -- command, or the summary window's own run mapping) -- so hooking
+        -- it here clears+reopens the output panel universally, instead of
+        -- patching every place a run can be triggered from.
+        reset_output_panel_on_run = function(client)
+          client.listeners.run = function()
+            neotest.output_panel.clear()
+            neotest.output_panel.open()
+          end
+          return {}
+        end,
+      },
     }
+
+    vim.api.nvim_create_autocmd('FileType', {
+      pattern = 'neotest-output-panel',
+      callback = function(args)
+        vim.keymap.set('n', '<leader>Toc', function()
+          require('neotest').output_panel.clear()
+        end, { buffer = args.buf, desc = '[T]est [O]utput [C]lear' })
+      end,
+    })
   end,
 }
