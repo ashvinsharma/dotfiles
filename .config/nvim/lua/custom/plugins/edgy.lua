@@ -26,10 +26,9 @@ return {
       { ft = 'neotest-summary', title = 'Tests', size = { height = 0.2 } },
     },
     bottom = {
-      -- IntelliJ's Problems tool window.
       { ft = 'trouble', title = 'Problems', size = { height = 0.3 } },
       -- Test output console, like IntelliJ's test runner console.
-      { ft = 'neotest-output-panel', title = 'Test Output', size = { height = 0.3 } },
+      -- { ft = 'neotest-output-panel', title = 'Test Output', size = { height = 0.3 } },
     },
   },
 }
