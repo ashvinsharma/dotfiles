@@ -21,6 +21,13 @@ bootstrap: ## install stow and all mise-managed tools (run once on a new machine
 		esac; \
 	else echo "     already installed"; fi
 	@echo ""
+	@echo "==> homebrew bundle (nvim config deps -- see Brewfile)"
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		if command -v brew >/dev/null 2>&1; then \
+			brew bundle install --file="$(REPO)/Brewfile"; \
+		else echo "     homebrew not found — install it first: https://brew.sh"; fi; \
+	else echo "     skipping (Brewfile is macOS-only)"; fi
+	@echo ""
 	@echo "==> mise install"
 	@if ! command -v mise >/dev/null 2>&1; then \
 		echo "     mise not found — installing"; \
