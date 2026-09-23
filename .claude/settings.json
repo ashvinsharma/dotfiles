@@ -62,7 +62,7 @@
     ],
     "defaultMode": "acceptEdits"
   },
-  "model": "claude-sonnet-4-5[1m]",
+  "model": "sonnet",
   "hooks": {
     "PreToolUse": [
       {
