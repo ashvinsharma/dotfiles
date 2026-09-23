@@ -14,6 +14,14 @@ A dry run means manually tracing/walking through code logic line-by-line without
 
 Do not use the memory system unless explicitly asked by the user.
 
+## No walls of text
+
+Never write long prose explanations. Say only what's necessary, then stop. When explaining how code works, show the actual snippet(s) from the codebase (with file path/line numbers) instead of describing it in prose — the snippet does the explaining, keep surrounding text minimal.
+
+A request to "explain," "walk me through," or "why does X do Y" is not an exception to this rule — it is the exact case this rule governs. The instinct to write a thorough explanation IS the failure mode. Default to: snippet, one-line caption, stop.
+
+Tool call results (Read, Grep, etc.) are invisible to the user — only the text written directly in the response counts. "Showing a snippet" means pasting the actual code into the response in a fenced block, not calling a tool and captioning it. Before sending, check: is the code literally present in my own written text?
+
 ## Proactive command suggestions
 
 When context matches a command's purpose, suggest it with one line — do not lecture, do not repeat the suggestion if already declined. Format: `Tip: this looks like a good case for \`/command\` — want me to run it?`
