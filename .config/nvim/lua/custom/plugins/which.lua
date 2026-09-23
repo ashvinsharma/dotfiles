@@ -54,6 +54,7 @@ return { -- Useful plugin to show you pending keybinds.
       { '<leader>D', group = '[D]ebug', mode = { 'n' } },
       { '<leader>x', group = '[X] Diagnostics', mode = { 'n' } },
       { '<leader>T', group = '[T]est', mode = { 'n' } },
+      { '<leader>i', group = '[I]ron REPL', mode = { 'n', 'v' } },
     },
   },
 }
