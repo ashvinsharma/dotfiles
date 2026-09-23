@@ -150,6 +150,7 @@ git-import() {
   git clone "$url" "$repo_path" && cd "$repo_path"
 }
 
+export RIPGREP_CONFIG_PATH=~/.ripgreprc
 export DEVELOPER_DIR="$(xcode-select -p)"
 export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 
