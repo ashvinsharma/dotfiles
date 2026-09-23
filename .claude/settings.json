@@ -62,6 +62,7 @@
     ],
     "defaultMode": "acceptEdits"
   },
+  "model": "claude-sonnet-4-5[1m]",
   "hooks": {
     "PreToolUse": [
       {
@@ -70,6 +71,18 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/block-force-push.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "^(startup|resume|clear|compact|fork)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/Users/ashvin/.claude/hooks/herdr-agent-state.sh' session",
+            "timeout": 10
           }
         ]
       }
@@ -92,9 +105,10 @@
       }
     }
   },
-  "effortLevel": "high",
+  "effortLevel": "xhigh",
   "advisorModel": "opus",
   "skipDangerousModePermissionPrompt": true,
+  "theme": "auto",
   "skipAutoPermissionPrompt": true,
-  "model": "sonnet"
+  "tui": "fullscreen"
 }
