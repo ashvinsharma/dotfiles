@@ -27,12 +27,15 @@ For each hunk, in order:
 
 ### Present the hunk
 
+**HUNK [N of TOTAL]** `[file path]` `[hunk header]`
+
+```diff
+ [unchanged context line]
+-[removed line]
++[added line]
 ```
-─────────────────────────────────────────────────────
-HUNK [N of TOTAL]  [file path]  [hunk header]
-─────────────────────────────────────────────────────
-[diff lines — additions in green, removals in red]
-```
+
+Always put the hunk lines in a ```` ```diff ```` fence (never a plain ```` ``` ```` fence) so removals render red and additions green. Keep the raw `-`/`+`/space prefixes. Put the hunk header line outside the fence so it doesn't get coloured as a diff line.
 
 ### Explain it
 
