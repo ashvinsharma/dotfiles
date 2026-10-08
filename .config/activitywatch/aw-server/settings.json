@@ -7,7 +7,7 @@
     "theme": "light",
     "newReleaseCheckData": {
         "isEnabled": true,
-        "nextCheckTime": "2026-07-15T15:32:21.010Z",
+        "nextCheckTime": "2026-09-25T14:57:01.764Z",
         "howOftenToCheck": 86400,
         "timesChecked": 0
     },
@@ -72,7 +72,7 @@
             ],
             "rule": {
                 "ignore_case": true,
-                "regex": "iTerm2",
+                "regex": "iTerm2|Ghostty",
                 "type": "regex"
             }
         },
@@ -302,7 +302,7 @@
             ],
             "rule": {
                 "ignore_case": true,
-                "regex": "zoom\\.us|Zoom Meeting",
+                "regex": "zoom\\.us|Zoom Meeting|Zoom",
                 "type": "regex"
             }
         },
