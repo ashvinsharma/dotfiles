@@ -68,6 +68,9 @@ Then fetch each MR individually (`projects/{id}/merge_requests/{iid}`) to get `h
 ## Use GitLab MCP for gitlab related links
 You should always try to open every gitlab related link with gitlab mcp whenever it is available. Do not post anything on gitlab without asking for explicit permission.
 
+## Long-running work
+Delegate long-running operations (reviews, implementations, CI babysitting) to a herdr tab with its own agent; keep the main thread free.
+
 ## Spawn multiple read-only agents
 For read-only context gathering across multiple independent files, modules, or questions, spawn parallel Explore agents — one per distinct area or question. Run all in parallel in a single message. Consolidate all results before acting. Over-parallelising is preferable to under-parallelising when gathering read-only context. For tasks requiring a single targeted read, do not spawn agents.
 

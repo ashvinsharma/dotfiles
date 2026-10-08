@@ -5,42 +5,44 @@
   },
   "permissions": {
     "allow": [
-      "Bash(ls:*)",
-      "Bash(find:*)",
-      "Bash(grep:*)",
+      "Bash(*/scratchpad/bin/runner-* run *)",
       "Bash(cat:*)",
-      "Bash(head:*)",
-      "Bash(tail:*)",
-      "Bash(pwd:*)",
-      "Bash(wc:*)",
-      "Bash(which:*)",
-      "Bash(file:*)",
-      "Bash(stat:*)",
-      "Bash(git log:*)",
-      "Bash(git show:*)",
-      "Bash(git diff:*)",
-      "Bash(git status:*)",
-      "Bash(git branch:*)",
       "Bash(claude mcp --help:*)",
       "Bash(claude mcp add GitLab -- npx -y mcp-remote@0.1.24 https://gitlab.com/api/v4/mcp)",
       "Bash(claude mcp add:*)",
       "Bash(claude mcp list:*)",
-      "mcp__GitLab__get_merge_request",
-      "mcp__GitLab__get_merge_request_diffs",
-      "WebFetch(domain:gitlab.com)",
       "Bash(curl:*)",
-      "mcp__GitLab__search",
-      "mcp__GitLab__get_mcp_server_version",
-      "Bash(git remote:*)",
-      "mcp__GitLab__semantic_code_search",
-      "mcp__GitLab__get_issue",
-      "Bash(go build:*)",
       "Bash(export GOTOOLCHAIN=local)",
+      "Bash(file:*)",
+      "Bash(find:*)",
+      "Bash(git add:*)",
+      "Bash(git branch:*)",
+      "Bash(git commit:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git remote:*)",
+      "Bash(git show:*)",
+      "Bash(git status:*)",
+      "Bash(go build:*)",
       "Bash(go test:*)",
       "Bash(golangci-lint run:*)",
+      "Bash(grep:*)",
+      "Bash(head:*)",
+      "Bash(herdr agent prompt:*)",
+      "Bash(ls:*)",
       "Bash(opencode run:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(pwd:*)",
+      "Bash(stat:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(which:*)",
+      "WebFetch(domain:gitlab.com)",
+      "mcp__GitLab__get_issue",
+      "mcp__GitLab__get_mcp_server_version",
+      "mcp__GitLab__get_merge_request",
+      "mcp__GitLab__get_merge_request_diffs",
+      "mcp__GitLab__search",
+      "mcp__GitLab__semantic_code_search"
     ],
     "ask": [
       "Bash(rm:*)",
@@ -62,7 +64,6 @@
     ],
     "defaultMode": "acceptEdits"
   },
-  "model": "sonnet",
   "hooks": {
     "PreToolUse": [
       {
@@ -105,10 +106,18 @@
       }
     }
   },
+  "feedbackDrafts": "off",
   "effortLevel": "xhigh",
   "advisorModel": "opus",
+  "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
+  "switchModelsOnFlag": false,
   "skipAutoPermissionPrompt": true,
-  "tui": "fullscreen"
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "Bash(herdr agent prompt:*)"
+    ]
+  }
 }
