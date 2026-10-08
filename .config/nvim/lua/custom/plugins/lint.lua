@@ -9,6 +9,10 @@ return {
     -- golangcilint linter is used as-is (plain PATH lookup); correct
     -- per-project version resolution comes from custom.settings.mise-env
     -- keeping $PATH in sync, not from anything here.
+    --
+    -- Set on nvim's own env, not linter.env: nvim-lint's env replaces the
+    -- whole environment (only PATH is kept), dropping HOME/GOPATH/GOCACHE.
+    vim.env.GOTOOLCHAIN = 'auto'
     lint.linters_by_ft = {
       sh = { 'shellcheck' },
       bash = { 'shellcheck' },

@@ -601,17 +601,12 @@ return {
     local servers = {
       gopls = {
         mason = false,
-        -- The mise `gopls` shim re-derives its *entire* toolchain (GOROOT,
-        -- PATH, etc.) from its own invocation cwd, ignoring whatever PATH
-        -- it inherits -- so it needs to actually run from the project root,
-        -- not wherever nvim's own process happened to launch from (`cmd`
-        -- as a plain string[] spawns with cwd = nvim's process cwd, since
-        -- nothing in vim.lsp defaults cmd_cwd from root_dir). Spawning it
-        -- manually here lets us pass the already-resolved `config.root_dir`
-        -- as cwd instead.
+        -- One fixed gopls for every project; GOTOOLCHAIN=auto lets `go` pick
+        -- (and download) the toolchain each go.mod asks for.
         cmd = function(dispatchers, config)
-          return vim.lsp.rpc.start({ vim.fn.expand '~/.local/share/mise/shims/gopls' }, dispatchers, {
+          return vim.lsp.rpc.start({ vim.fn.expand '~/.local/bin/gopls' }, dispatchers, {
             cwd = config.root_dir,
+            env = { GOTOOLCHAIN = 'auto' },
           })
         end,
         -- gopls disables all CodeLenses by default; opt into the useful
