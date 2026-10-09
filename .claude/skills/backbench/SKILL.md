@@ -131,3 +131,16 @@ Suspend requires `FF_SUSPENDABLE_ENVIRONMENTS = true` under `[runners.feature_fl
   containers whose IDs are in the key, so the container filesystem survives.
 - For docker-autoscaler on fresh cloud VMs, install Docker with cloud-init and set
   `instance_ready_command = "cloud-init status --wait"` in `[runners.autoscaler]`.
+- **The environment key contains `&`** (url-encoded fields). Rendering it into a template with
+  `sed "s|__KEY__|$KEY|"` turns each `&` into the placeholder, and the runner reports `acquisition "...__KEY__..." not found`.
+  Escape it first (`sed 's/[&|\\]/\\&/g'`) and check that the rendered file contains the key verbatim.
+- **Resuming after a runner restart:** without `[runners.autoscaler.state_storage] enabled = true`, the runner keeps
+  acquisitions only in memory, so a restarted runner fails with `acquisition "<key>" not found`. With it enabled
+  (and `keep_instance_with_acquisitions = true`), the state is saved and loaded (`loaded state instance=<id>`), but
+  taskscaler up to at least `09c548d` (Oct 2026) drops the "restored" flag for an instance first seen suspended. On resume
+  the runner then logs `no data on pre-existing instance so removing for safety` and deletes the VM. Fixed locally on
+  taskscaler branch `fix/suspended-restore-flag`; test with a runner built with a `go.mod` `replace` until it merges.
+  Don't read an empty `state_storage` dir after the run as "never written": files are deleted along with the instance.
+- **backbench doesn't exit after writing the report.** Confirmed in an Oct 2026 run: poll for the JSON, then kill it.
+- When waiting on a background script, don't use `pgrep -f "<script name>"`. It also matches the waiting command's own
+  command line, so the wait never ends. Wait on a sentinel line in the script's output instead.
