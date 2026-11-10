@@ -7,7 +7,7 @@
     "theme": "light",
     "newReleaseCheckData": {
         "isEnabled": true,
-        "nextCheckTime": "2026-09-25T14:57:01.764Z",
+        "nextCheckTime": "2026-10-14T04:07:33.976Z",
         "howOftenToCheck": 86400,
         "timesChecked": 0
     },
@@ -72,7 +72,7 @@
             ],
             "rule": {
                 "ignore_case": true,
-                "regex": "iTerm2|Ghostty",
+                "regex": "iTerm2|Ghostty|ashsharma--20241227-M9QNN",
                 "type": "regex"
             }
         },
@@ -490,5 +490,5 @@
     ],
     "requestTimeout": 31,
     "useColorFallback": true,
-    "always_active_pattern": "Zoom Meeting|Facetime"
+    "always_active_pattern": "Zoom Meeting|Facetime|Ghostty"
 }
