@@ -144,3 +144,22 @@ Suspend requires `FF_SUSPENDABLE_ENVIRONMENTS = true` under `[runners.feature_fl
 - **backbench doesn't exit after writing the report.** Confirmed in an Oct 2026 run: poll for the JSON, then kill it.
 - When waiting on a background script, don't use `pgrep -f "<script name>"`. It also matches the waiting command's own
   command line, so the wait never ends. Wait on a sentinel line in the script's output instead.
+- **Suspended-environment TTL tests: keep the short TTL just above provisioning + job time (about 1–2 min), and restart
+  to sweep.** The expiry is stamped at prepare (PVC creation, slot assignment), so a TTL shorter than VM boot / PVC bind
+  plus the job expires the environment before the suspend completes. Going lower than ~1m saves little anyway:
+  cleanup waits are dominated by the fixed 10 min sweep grace and the 10 min sweep interval, not by the TTL. A "deleted after expiry" check costs at least
+  TTL + 10 min, and up to TTL + 20 min when a running job prevents a restart, because the first periodic tick always
+  falls before the cutoff. Force a sweep with a runner restart (it sweeps at start) wherever no job is running. A
+  config-vs-stamp check must make sure **no** runner with the short TTL is alive across a periodic tick before the
+  cutoff, or that runner's sweep does the deletion and the check proves nothing.
+- **Don't restart the manager while a suspended VM is still stopping.** Taskscaler (as of `70dd8ad`) ignores an
+  instance first seen in `Suspending` and drops its saved state (`failed to restore saved state`). The VM is then
+  re-adopted with no slots and removed as idle, so the environment is lost. Poll for GCE `TERMINATED` before restarting.
+- **Backbench numbers jobs from 1 on every `serve`.** With Kubernetes `namespace_per_job` the namespaces
+  (`ci-job-<id>`) collide across serves. Offset the IDs (a local patch reading an env var into `nextJobID`) or use
+  separate runners.
+- **Set `job.features.failure_reasons`** (list `runtime_environment_unavailable`) in the job YAML, or the runner maps
+  new failure reasons to `runner_system_failure`. Writing the job file as JSON (valid YAML) avoids escaping the key's `&`.
+- **Never reuse a state dir path while an old script using it can still exit.** Its `EXIT` trap (`stop_runner` from
+  `runner.pid`) fires late and kills the new run's runner. Kill old scripts with `SIGKILL` (no trap) or use a new path.
+  Likewise, don't edit a bash script while it runs: bash reads it lazily and errors (`syntax error near unexpected token`).
