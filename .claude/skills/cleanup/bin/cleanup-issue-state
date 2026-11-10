@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# cleanup-issue-state — print the state (opened|closed) of one issue. GET only.
+#
+# Usage:
+#   cleanup-issue-state <project_path> <iid>
+#
+# A script (not a bare `glab api` in allowed-tools) so the pre-approved surface stays read-only.
+set -euo pipefail
+
+# Test seam: GLAB_CMD overrides the binary (e.g. "bash /path/fake-glab.sh").
+read -r -a GLAB <<<"${GLAB_CMD:-glab}"
+
+project="${1:-}" iid="${2:-}"
+[[ -n "$project" && "$iid" =~ ^[0-9]+$ ]] || { echo "usage: cleanup-issue-state <project_path> <iid>" >&2; exit 2; }
+"${GLAB[@]}" api "projects/${project//\//%2F}/issues/${iid}" | jq -r '.state // "unknown"'

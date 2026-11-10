@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# cleanup-threads — reviewer discussion threads of one MR, grouped by who wrote them.
+#
+# Usage:
+#   cleanup-threads <project_path> <iid> [--max-body N] [--include-self]
+#
+# System notes are dropped. Each thread is classified by its first non-self author:
+#   human  anyone else          bot  Danger / project & group bots
+#   duo    GitLabDuo & Duo agents (kept separate: lower signal)
+#   self   threads only you wrote (hidden unless --include-self)
+# Output: markdown, human → bot → duo. Final line lists author counts so a
+# mis-classified bot can be spotted. Override with CLEANUP_BOT_RE / CLEANUP_DUO_RE.
+# Read-only: GET via `glab api`.
+set -euo pipefail
+
+# Test seam: GLAB_CMD / HERDR_CMD override the binaries (e.g. "bash /path/fake-glab.sh").
+read -r -a GLAB <<<"${GLAB_CMD:-glab}"
+
+max_body=500 include_self=0 project="" iid=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --max-body) max_body="${2:?--max-body needs N}"; shift 2 ;;
+    --include-self) include_self=1; shift ;;
+    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) if [[ -z "$project" ]]; then project="$1"; elif [[ -z "$iid" ]]; then iid="$1"
+       else echo "error: unexpected arg: $1" >&2; exit 2; fi; shift ;;
+  esac
+done
+[[ -n "$project" && -n "$iid" ]] || { echo "usage: cleanup-threads <project_path> <iid>" >&2; exit 2; }
+
+me="${CLEANUP_AUTHOR:-}"
+[[ -n "$me" ]] || me="$("${GLAB[@]}" api user | jq -r '.username // empty')"
+[[ -n "$me" ]] || { echo "error: cannot resolve glab user; set CLEANUP_AUTHOR" >&2; exit 1; }
+bot_re="${CLEANUP_BOT_RE:-(_bot_|-bot\$|^project_[0-9]+_bot|^group_[0-9]+_bot|^gitlab-bot|danger)}"
+duo_re="${CLEANUP_DUO_RE:-(^(gitlab)?duo|duo-)}"
+
+"${GLAB[@]}" api "projects/${project//\//%2F}/merge_requests/${iid}/discussions?per_page=100" --paginate \
+  | jq -s 'add // []' \
+  | jq -r --arg me "$me" --arg bot "$bot_re" --arg duo "$duo_re" \
+        --argjson n "$max_body" --argjson inc "$include_self" '
+  def cat: if .author.username == $me then "self"
+           elif (.author.username | test($duo; "i")) then "duo"
+           elif (.author.username | test($bot; "i")) or (.author.bot // false) then "bot"
+           else "human" end;
+  def clean: (.body // "") | gsub("\\s+"; " ") | if length > $n then .[0:$n] + " …" else . end;
+  def order: {"human":0,"bot":1,"duo":2,"self":3}[.];
+
+  . as $all
+  | [ $all[] | .notes |= map(select(.system == false)) | select((.notes | length) > 0)
+      | . as $d
+      | ($d.notes | map(select(.author.username != $me)) | .[0]) as $first
+      | ($first // $d.notes[0]) as $lead
+      | ($lead | cat) as $c
+      | select($c != "self" or $inc == 1)
+      | ($d.notes | map(select(.resolvable == true))) as $res
+      | { c: $c,
+          loc: ($d.notes[0].position // null | if . then "\(.new_path // .old_path):\(.new_line // .old_line // "")" else "general" end),
+          st: (if ($res | length) == 0 then "-" elif ($res | all(.resolved == true)) then "resolved" else "OPEN" end),
+          id: ($d.id[0:8]),
+          notes: $d.notes } ]
+  | sort_by(.c | order) as $threads
+  | ( $threads[] |
+      "### [\(.c)] \(.loc) · \(.st) · \(.id)",
+      ( .notes[] | (if .author.username == $me then "  ↳ @\(.author.username) (you): " else "> @\(.author.username): " end) + clean ),
+      "" ),
+    "---",
+    "threads: \($threads | length) · authors: " + ( [ $all[] | .notes[] | select(.system == false) | .author.username ]
+        | group_by(.) | map("\(.[0])×\(length)") | join(", ") )
+'

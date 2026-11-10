@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# cleanup-state — timestamp of the last CONFIRMED /cleanup run, kept outside every repo.
+#
+# Usage:
+#   cleanup-state get                 print the timestamp (empty if never confirmed)
+#   cleanup-state confirm [ISO8601]   record it (default: now, UTC)
+#
+# Only `confirm` writes. /cleanup calls it after the user approves the proposals,
+# passing the run's START time so MRs merged mid-run are not skipped next time.
+# Never call it from a --dry-run.
+# Env: CLEANUP_STATE_FILE (default ~/.claude/cleanup-state.json)
+set -euo pipefail
+
+STATE_FILE="${CLEANUP_STATE_FILE:-$HOME/.claude/cleanup-state.json}"
+
+cmd_get() {
+  [[ -f "$STATE_FILE" ]] || return 0
+  jq -r '.last_confirmed // empty' "$STATE_FILE"
+}
+
+cmd_confirm() {
+  local ts="${1:-}"
+  [[ -n "$ts" ]] || ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  [[ "$ts" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] \
+    || { echo "error: timestamp must look like 2026-11-10T09:00:00Z, got '$ts'" >&2; exit 2; }
+  mkdir -p "$(dirname "$STATE_FILE")"
+  local json
+  json="$(jq -n --arg ts "$ts" '{last_confirmed: $ts}')"
+  [[ -n "$json" ]] || { echo "error: jq produced no output" >&2; exit 1; }
+  printf '%s\n' "$json" >"$STATE_FILE"
+  printf 'last_confirmed=%s\n' "$ts"
+}
+
+case "${1:-}" in
+  get) cmd_get ;;
+  confirm) shift; cmd_confirm "${1:-}" ;;
+  *) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

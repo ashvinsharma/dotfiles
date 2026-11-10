@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+# worktree-audit — DRY-RUN report of git worktrees across repos, plus a proposed cleanup script.
+#
+# Usage:
+#   worktree-audit [--repo <checkout>]... [--root <dir>]... [--script <out.sh>] [--tabs]
+#
+#   --repo    a main checkout to audit (repeatable)
+#   --root    a directory searched (depth ≤4) for main checkouts (repeatable;
+#             default: $WORKSPACE_ROOT/gitlab-org)
+#   --script  write the proposed commands to <out.sh> (written without +x — read it, then `bash out.sh`)
+#   --tabs    also list herdr tabs whose label names a finished MR/worktree
+#
+# NEVER removes, prunes, fetches or modifies anything. Repos are de-duplicated by git common dir,
+# so sibling worktrees (`taskscaler-replace`, …) are listed once, under their parent repo, wherever
+# on disk they live (in-repo, sibling dir, /private/tmp, ~/.claude/jobs/*/tmp, inside the artifacts repo).
+#
+# Classification (per worktree):  ACTIVE (open MR) · MERGED · CLOSED · NO-MR · PRUNABLE (dir gone)
+# Flags: dirty(N)       uncommitted/untracked files — NEVER proposed for removal
+#        local-only(N)  commits not on any remote ref and not in the MR's head — NEVER proposed
+#        heuristic      MR found via HEAD sha or dir-name digits, not the branch — NEVER proposed
+#        IN-ARTIFACTS   worktree lives inside the ai-workflow-artifacts repo
+# `git worktree remove` is proposed ONLY for merged/closed MRs resolved by branch name, with a clean
+# tree and nothing local-only (squash merges make "merged + clean" alone a false all-clear).
+# Branch/MR lookups are GET requests via `glab api`; results are cached per run.
+# Env: WORKSPACE_ROOT (default ~/workspace), ARTIFACTS_ROOT (default ~/workspace/ai-workflow-artifacts)
+set -euo pipefail
+
+# Test seam: GLAB_CMD / HERDR_CMD override the binaries (e.g. "bash /path/fake-glab.sh").
+read -r -a GLAB <<<"${GLAB_CMD:-glab}"
+read -r -a HERDR <<<"${HERDR_CMD:-herdr}"
+
+WORKSPACE="${WORKSPACE_ROOT:-$HOME/workspace}"
+ARTIFACTS="${ARTIFACTS_ROOT:-$HOME/workspace/ai-workflow-artifacts}"
+declare -a repos=() roots=()
+script_out="" want_tabs=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo) repos+=("${2:?--repo needs a path}"); shift 2 ;;
+    --root) roots+=("${2:?--root needs a dir}"); shift 2 ;;
+    --script) script_out="${2:?--script needs a path}"; shift 2 ;;
+    --tabs) want_tabs=1; shift ;;
+    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "error: unexpected arg: $1" >&2; exit 2 ;;
+  esac
+done
+(( ${#roots[@]} + ${#repos[@]} > 0 )) || roots=("$WORKSPACE/gitlab-org")
+
+# All state lives in shell variables: no temp files to create or clean up.
+MR_CACHE=""   # lines: key<TAB>state|iid|mr_sha|how
+MR_RESULT=""
+ROWS="" PROPS="" REVIEW=""   # TSV lines; PROPS: kind repo path extra · REVIEW: repo path reason
+
+# shellcheck disable=SC2059  # the format string is the caller's, by design
+append() { local __v="$1" __l; shift; printf -v __l "$@"; printf -v "$__v" '%s%s\n' "${!__v}" "$__l"; }
+nlines() { printf '%s' "$1" | grep -c . || true; }
+
+abs() { (cd "$1" 2>/dev/null && pwd -P); }
+
+# --- discover main checkouts, dedupe by common dir ----------------------------------------------
+declare -a candidates=()
+for r in ${repos[@]+"${repos[@]}"}; do candidates+=("$r"); done
+for root in ${roots[@]+"${roots[@]}"}; do
+  [[ -d "$root" ]] || continue
+  while IFS= read -r g; do candidates+=("$(dirname "$g")"); done < <(find "$root" -maxdepth 4 -name .git -type d 2>/dev/null)
+done
+
+declare -a common_dirs=() main_of=()
+for c in ${candidates[@]+"${candidates[@]}"}; do
+  [[ -d "$c" ]] || continue
+  cd_="$(git -C "$c" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  [[ -n "$cd_" ]] || continue
+  seen=0
+  for known in ${common_dirs[@]+"${common_dirs[@]}"}; do [[ "$known" == "$cd_" ]] && seen=1; done
+  if (( seen == 0 )); then common_dirs+=("$cd_"); main_of+=("$(abs "$c")"); fi
+done
+
+# --- helpers -------------------------------------------------------------------------------------
+project_path_of() {   # origin url -> group/project
+  local u; u="$(git -C "$1" remote get-url origin 2>/dev/null || true)"
+  u="${u#*gitlab.com[:/]}"; printf '%s' "${u%.git}"
+}
+
+# mr_for <project> <branch> <sha> <dirname>  -> sets MR_RESULT="state|iid|mr_sha|how"
+# (how: branch|sha|name|none). Called directly, never in a subshell, so the cache persists.
+mr_for() {
+  local proj="$1" br="$2" sha="$3" dn="$4" enc key out hit
+  enc="${proj//\//%2F}"; key="$proj|$br|$sha|$dn"
+  hit="$(printf '%s' "$MR_CACHE" | awk -F'\t' -v k="$key" '$1==k {print $2; exit}')"
+  if [[ -n "$hit" ]]; then MR_RESULT="$hit"; return 0; fi
+  out=""
+  if [[ -n "$br" ]]; then
+    out="$("${GLAB[@]}" api "projects/${enc}/merge_requests?source_branch=${br//\//%2F}&state=all&per_page=20" 2>/dev/null \
+      | jq -r '(map(select(.state=="opened")) + (sort_by(.updated_at) | reverse)) | .[0] // empty
+               | "\(.state)|\(.iid)|\(.sha // "")|branch"' 2>/dev/null || true)"
+  fi
+  if [[ -z "$out" && -n "$sha" ]]; then
+    out="$("${GLAB[@]}" api "projects/${enc}/repository/commits/${sha}/merge_requests" 2>/dev/null \
+      | jq -r '(map(select(.state=="opened")) + (sort_by(.updated_at) | reverse)) | .[0] // empty
+               | "\(.state)|\(.iid)|\(.sha // "")|sha"' 2>/dev/null || true)"
+  fi
+  if [[ -z "$out" ]]; then
+    local n; n="$(printf '%s' "$dn" | grep -oE '(mr|review|!)-?[0-9]{3,6}' | grep -oE '[0-9]+' | head -1 || true)"
+    if [[ -n "$n" ]]; then
+      out="$("${GLAB[@]}" api "projects/${enc}/merge_requests/${n}" 2>/dev/null \
+        | jq -r '"\(.state)|\(.iid)|\(.sha // "")|name"' 2>/dev/null || true)"
+    fi
+  fi
+  [[ -n "$out" ]] || out="none|||none"
+  MR_CACHE+="$key"$'\t'"$out"$'\n'
+  MR_RESULT="$out"
+}
+
+location_class() {  # path main_checkout
+  case "$1" in
+    "$ARTIFACTS"/*) echo "IN-ARTIFACTS" ;;
+    "$2"/.claude/worktrees/*) echo "in-repo" ;;
+    */.claude/jobs/*) echo "jobs-tmp" ;;
+    /private/tmp/*|/tmp/*|/private/var/*|/var/folders/*) echo "tmp" ;;
+    *) echo "sibling" ;;
+  esac
+}
+
+short() { local p="$1"; p="${p/#$HOME/~}"; if (( ${#p} > 62 )); then printf '…%s' "${p: -61}"; else printf '%s' "$p"; fi; }
+
+# --- scan ----------------------------------------------------------------------------------------
+declare -a finished=() protect=()      # "iid|worktree-basename" (iid "-" if unknown) for --tabs
+
+for main in ${main_of[@]+"${main_of[@]}"}; do
+  proj="$(project_path_of "$main")"
+  wt="" br="" head="" prunable="" first=1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      "worktree "*) wt="${line#worktree }"; br=""; head=""; prunable="" ;;
+      "HEAD "*) head="${line#HEAD }" ;;
+      "branch "*) br="${line#branch refs/heads/}" ;;
+      "prunable"*) prunable=1 ;;
+      "")
+        if (( first )); then
+          # first porcelain entry = the main checkout: shown (uncommitted work must surface), never removed
+          first=0
+          if [[ -n "$wt" && -d "$wt" ]]; then
+            flags=""
+            ndirty="$(git -C "$wt" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+            (( ndirty > 0 )) && flags+="dirty($ndirty) "
+            nlocal="$(git -C "$wt" rev-list --count HEAD --not --remotes 2>/dev/null || echo "?")"
+            [[ "$nlocal" != 0 ]] && flags+="local-only($nlocal) "
+            flags="${flags% }"
+            [[ -z "$flags" ]] || append REVIEW '%s\t%s\t%s' "$main" "$wt" "main checkout — ${flags}"
+            append ROWS '%s\t%s\t%s\t%s\t%s\t%s\t%s' "$proj" "main" "$(short "$wt")" "${br:-(detached)}" "- MAIN" "${flags:--}" "main checkout — never removed"
+            protect+=("-|$(basename "$wt")")
+          fi
+          wt=""; continue
+        fi
+        [[ -n "$wt" ]] || continue
+        loc="$(location_class "$wt" "$main")"
+        flags=""; state="NO-MR"; mr="-"; how="-"; proposal="keep"; miid=""
+        if [[ -n "$prunable" || ! -d "$wt" ]]; then
+          state="PRUNABLE"; proposal="git worktree prune (metadata only; dir already gone)"
+          append PROPS 'prune\t%s\t%s\t' "$main" "$wt"
+        else
+          ndirty="$(git -C "$wt" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+          (( ndirty > 0 )) && flags+="dirty($ndirty) "
+          [[ "$loc" == IN-ARTIFACTS ]] && flags+="IN-ARTIFACTS "
+          up="$(git -C "$wt" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+          lookup_br="$br"; [[ -n "$up" ]] && lookup_br="${up#*/}"
+          mr_for "$proj" "$lookup_br" "$head" "$(basename "$wt")"
+          IFS='|' read -r mstate miid msha how <<<"$MR_RESULT"
+          case "$mstate" in
+            opened) state="ACTIVE"; mr="!$miid" ;;
+            merged) state="MERGED"; mr="!$miid" ;;
+            closed) state="CLOSED"; mr="!$miid" ;;
+            *) state="NO-MR"; how="-" ;;
+          esac
+          [[ "$how" == sha || "$how" == name ]] && flags+="heuristic($how) "
+          nlocal="$(git -C "$wt" rev-list --count HEAD --not --remotes 2>/dev/null || echo "?")"
+          if [[ "$nlocal" != 0 ]]; then
+            if [[ -n "${msha:-}" && "$head" == "$msha" ]] || \
+               { [[ -n "${msha:-}" ]] && git -C "$wt" merge-base --is-ancestor "$head" "$msha" 2>/dev/null; }; then
+              nlocal=0
+            fi
+          fi
+          [[ "$nlocal" != 0 ]] && flags+="local-only($nlocal) "
+          flags="${flags% }"
+          if [[ "$state" == MERGED || "$state" == CLOSED ]]; then
+            if [[ "$how" == branch && -z "$flags" ]]; then
+              proposal="git worktree remove (clean, in MR)"
+              append PROPS 'remove\t%s\t%s\t%s' "$main" "$wt" "$mr $state"
+            else
+              proposal="REVIEW: ${flags}"
+              append REVIEW '%s\t%s\t%s' "$main" "$wt" "$state $mr — ${flags}"
+            fi
+          elif [[ -n "$flags" ]]; then
+            append REVIEW '%s\t%s\t%s' "$main" "$wt" "$state $mr — ${flags}"
+          fi
+        fi
+        append ROWS '%s\t%s\t%s\t%s\t%s\t%s\t%s' "$proj" "$loc" "$(short "$wt")" "${br:-(detached)}" "$mr $state" "${flags:--}" "$proposal"
+        # tab bookkeeping: only worktrees proposed for removal may release a tab; every other row protects its own
+        if [[ "$proposal" == "git worktree remove"* ]]; then finished+=("${miid:--}|$(basename "$wt")")
+        else protect+=("${miid:--}|$(basename "$wt")"); fi
+        wt="" ;;
+    esac
+  done < <(git -C "$main" worktree list --porcelain 2>/dev/null; echo)
+done
+
+# --- report --------------------------------------------------------------------------------------
+echo "# Worktree audit (dry run — nothing was changed)"
+echo
+echo "| repo | where | path | branch | MR / state | flags | proposal |"
+echo "|---|---|---|---|---|---|---|"
+printf '%s' "$ROWS" | sort -t$'\t' -k1,1 -k2,2 | awk -F'\t' '{printf "| %s | %s | `%s` | `%s` | %s | %s | %s |\n",$1,$2,$3,$4,$5,$6,$7}'
+echo
+n_remove="$(printf '%s' "$PROPS" | awk -F'\t' '$1=="remove"' | grep -c . || true)"
+n_prune="$(printf '%s' "$PROPS" | awk -F'\t' '$1=="prune"' | grep -c . || true)"
+n_review="$(nlines "$REVIEW")"
+echo "repos: ${#main_of[@]} · checkouts+worktrees: $(nlines "$ROWS") · propose remove: $n_remove · propose prune: $n_prune · need review: $n_review"
+if (( n_review > 0 )); then
+  echo
+  echo "## ⚠ Needs your attention (never auto-removed)"
+  printf '%s' "$REVIEW" | awk -F'\t' '{printf "- `%s` — %s\n", $2, $3}' | sed "s#$HOME#~#"
+fi
+
+# A tab is tied to a worktree only by an exact label==basename or a label ending in "!<iid>".
+# No substring matching: `suspendable-ttl-docker` must not claim the tab of `suspendable-ttl-docker-sweep`.
+tab_matches() {   # label iid basename
+  local label="$1" iid="$2" base="$3" re
+  [[ "$label" == "$base" ]] && return 0
+  if [[ "$iid" =~ ^[0-9]+$ ]]; then re="(^|[^0-9])!${iid}\$"; [[ "$label" =~ $re ]] && return 0; fi
+  return 1
+}
+
+tabs_block=""
+if (( want_tabs )) && command -v "${HERDR[0]}" >/dev/null 2>&1 && (( ${#finished[@]} > 0 )); then
+  tabs_json="$("${HERDR[@]}" tab list 2>/dev/null | jq -c '.result.tabs[]? | {id: .tab_id, label}' 2>/dev/null || true)"
+  while IFS= read -r t; do
+    [[ -n "$t" ]] || continue
+    lbl="$(jq -r .label <<<"$t")"; tid="$(jq -r .id <<<"$t")"
+    hit=""
+    for f in "${finished[@]}"; do
+      if tab_matches "$lbl" "${f%%|*}" "${f#*|}"; then hit="${f%%|*}"; break; fi
+    done
+    [[ -n "$hit" ]] || continue
+    guarded=0
+    for f in ${protect[@]+"${protect[@]}"}; do
+      if tab_matches "$lbl" "${f%%|*}" "${f#*|}"; then guarded=1; break; fi
+    done
+    (( guarded )) || tabs_block+="herdr tab close $tid   # $lbl (MR !$hit finished)"$'\n'
+  done <<<"$tabs_json"
+  echo
+  echo "## herdr tabs of finished MRs (close only after you confirm; tabs of active/dirty/unmatched worktrees are never listed)"
+  printf '%s' "${tabs_block:-none}"; echo
+fi
+
+# --- proposed script -----------------------------------------------------------------------------
+if [[ -n "$script_out" ]]; then
+  {
+    echo '#!/usr/bin/env bash'
+    echo "# Proposed by worktree-audit on $(date +%F). READ BEFORE RUNNING; run with: bash $script_out"
+    echo '# No --force anywhere: git refuses to remove a worktree with uncommitted changes.'
+    echo 'set -euo pipefail'
+    echo
+    echo '# --- remove: merged/closed (resolved by branch), clean, nothing local-only ---'
+    printf '%s' "$PROPS" | awk -F'\t' '$1=="remove"{printf "git -C \"%s\" worktree remove \"%s\"   # %s\n",$2,$3,$4}'
+    echo
+    echo '# --- prune: worktree metadata whose directory is already gone ---'
+    printf '%s' "$PROPS" | awk -F'\t' '$1=="prune"{print $2}' | sort -u | while IFS= read -r m; do
+      printf 'git -C "%s" worktree prune -v\n' "$m"
+    done
+    if [[ -n "$tabs_block" ]]; then echo; echo '# --- herdr tabs (uncomment to close) ---'; printf '%s' "$tabs_block" | sed 's/^/# /'; fi
+    echo
+    echo '# --- NOT proposed (dirty / local-only commits / heuristic MR match): decide by hand ---'
+    printf '%s' "$REVIEW" | awk -F'\t' '{printf "# %s  [%s]\n",$2,$3}'
+  } >"$script_out"
+  echo
+  echo "proposed script: $script_out (not executed; no +x bit)"
+fi

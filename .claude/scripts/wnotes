@@ -1,0 +1,1017 @@
+#!/usr/bin/env python3
+"""wnotes — per-MR/issue work notes: index, SessionStart injection, start, resume.
+
+A NOTE.md per issue/MR lives in the artifacts repo; notes-index.json maps
+ref / url / branch / worktree path -> note path (+ herdr tab, Claude session id).
+
+  wnotes parse <url|ref>                 URL/ref -> {project, kind, iid, ref}
+  wnotes add --ref R [--url --note --branch --worktree --tab --session --epic --title --alias A]
+  wnotes rm <ref>
+  wnotes lookup <q> [--path|--json]      q = ref | url | branch | worktree | note path | !N | #N
+  wnotes ls [--json]
+  wnotes resolve [--cwd D] [--json]      the note for a directory (worktree, then branch, then iid in branch)
+  wnotes hook                            SessionStart hook: JSON on stdin, note on stdout. Never fails.
+  wnotes reindex                         rebuild the index from NOTE.md frontmatter
+  wnotes stamp [--ref R] [--snapshot]    bump last_updated, record session/tab/cwd, optionally live MR state
+  wnotes start <url|ref> [opts]          worktree + NOTE.md + index + herdr tab with a Claude agent
+  wnotes resume <url|ref|path> [opts]    focus or recreate the tab (claude --resume <id> when known)
+  wnotes briefing <url|ref|path>         read-only: note + what changed on GitLab since the last checkpoint
+
+Env: NOTES_ROOT (default ~/workspace/ai-workflow-artifacts/workflow-artifacts), NOTES_INDEX (default $NOTES_ROOT/notes-index.json).
+Metadata for start/resume/briefing/stamp comes from `glab api`, or from a fixture with --meta FILE.
+"""
+import json
+import os
+import re
+import sys
+
+HOME = os.path.expanduser("~")
+ROOT = os.path.expanduser(os.environ.get("NOTES_ROOT") or "~/workspace/ai-workflow-artifacts/workflow-artifacts")
+INDEX = os.path.expanduser(os.environ.get("NOTES_INDEX") or os.path.join(ROOT, "notes-index.json"))
+KEY_ORDER = ["ref", "kind", "project", "iid", "title", "status", "url", "epic", "note", "branch",
+             "worktree", "aliases", "tab", "session_id", "session_cwd", "snapshot", "updated"]
+
+
+class Die(Exception):
+    pass
+
+
+# ---------------------------------------------------------------- small helpers
+
+def read(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def today():
+    import datetime
+    return datetime.date.today().isoformat()
+
+
+def now():
+    import datetime
+    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def tilde(p):
+    return "~" + p[len(HOME):] if p.startswith(HOME + "/") else p
+
+
+def rp(p):
+    return os.path.realpath(os.path.expanduser(p))
+
+
+def within(path, parent):
+    return path == parent or path.startswith(parent.rstrip("/") + "/")
+
+
+# ---------------------------------------------------------------- ref parsing
+
+URL_RE = re.compile(r"^https?://[^/\s]+/(?P<path>.+?)/-/(?P<type>merge_requests|issues|work_items|epics)/(?P<iid>\d+)")
+REF_RE = re.compile(r"^(?P<p>[\w.\-]+(?:/[\w.\-]+)+)(?P<k>[!#])(?P<iid>\d+)$")
+BARE_RE = re.compile(r"^(?P<k>[!#])(?P<iid>\d+)$")
+
+
+def mkref(project, kind, iid):
+    return "%s%s%d" % (project, "!" if kind == "mr" else "#", int(iid))
+
+
+def parse_ref(s, default_project=None):
+    """Return {project, kind, iid, ref} or None. Handles nested groups, work_items,
+    ?query / #note fragments, group epics and bare !N / #N (needs default_project)."""
+    s = (s or "").strip()
+    m = URL_RE.match(s)
+    if m:
+        path, typ = m["path"], m["type"]
+        kind = {"merge_requests": "mr", "issues": "issue", "work_items": "issue", "epics": "epic"}[typ]
+        if path.startswith("groups/"):
+            path, kind = path[len("groups/"):], "epic"
+        return {"project": path, "kind": kind, "iid": int(m["iid"]),
+                "ref": mkref(path, kind, m["iid"]) if kind != "epic" else "%s&%s" % (path, m["iid"])}
+    m = REF_RE.match(s)
+    if m:
+        kind = "mr" if m["k"] == "!" else "issue"
+        return {"project": m["p"], "kind": kind, "iid": int(m["iid"]), "ref": mkref(m["p"], kind, m["iid"])}
+    m = BARE_RE.match(s)
+    if m and default_project:
+        kind = "mr" if m["k"] == "!" else "issue"
+        return {"project": default_project, "kind": kind, "iid": int(m["iid"]),
+                "ref": mkref(default_project, kind, m["iid"])}
+    return None
+
+
+def project_from_remote(url):
+    url = (url or "").strip()
+    url = re.sub(r"^(?:[A-Za-z+]+://)?(?:[^@/]+@)?[^/:]+[:/]", "", url)
+    url = re.sub(r"\.git$", "", url).strip("/")
+    return url or None
+
+
+# ---------------------------------------------------------------- git (no subprocess: hook must be fast)
+
+def git_info(cwd):
+    """{top, branch, project} read straight from .git files. None outside a repo."""
+    d = rp(cwd)
+    while True:
+        g = os.path.join(d, ".git")
+        if os.path.exists(g):
+            break
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+    gitdir = g
+    if os.path.isfile(g):
+        gitdir = read(g).strip()[len("gitdir:"):].strip()
+        if not os.path.isabs(gitdir):
+            gitdir = os.path.join(d, gitdir)
+    try:
+        head = read(os.path.join(gitdir, "HEAD")).strip()
+    except OSError:
+        head = ""
+    branch = head[len("ref: refs/heads/"):] if head.startswith("ref: refs/heads/") else ""
+    common = gitdir
+    cd = os.path.join(gitdir, "commondir")
+    project = None
+    try:
+        if os.path.exists(cd):
+            common = os.path.realpath(os.path.join(gitdir, read(cd).strip()))
+        m = re.search(r'\[remote "origin"\][^\[]*?\burl\s*=\s*(\S+)', read(os.path.join(common, "config")))
+        project = project_from_remote(m[1]) if m else None
+    except OSError:
+        pass
+    return {"top": d, "branch": branch, "project": project}
+
+
+_UNSET = object()
+
+
+def in_worktree(cwd, wt, g=_UNSET):
+    """Is cwd inside checkout wt? Judged by the cwd's git top, NOT by path prefix: worktrees live under
+    <repo>/.claude/worktrees, so a prefix test would let the main checkout claim every nested worktree."""
+    if g is _UNSET:
+        g = git_info(cwd)
+    if g:
+        return g["top"] == rp(wt)
+    return within(rp(cwd), rp(wt))
+
+
+def pick_by_worktree(cands, branch):
+    """Several notes can share one worktree (an issue, then its MR): prefer the branch match, then the newest."""
+    if len(cands) > 1 and branch:
+        cands = [e for e in cands if e.get("branch") == branch] or cands
+    if len(cands) > 1:
+        cands = [max(cands, key=lambda e: e.get("updated") or "")]
+    return cands
+
+
+# ---------------------------------------------------------------- index
+
+def load_index():
+    try:
+        idx = json.loads(read(INDEX))
+        if isinstance(idx, dict) and isinstance(idx.get("entries"), list):
+            return idx
+    except (OSError, ValueError):
+        pass
+    return {"version": 1, "entries": []}
+
+
+def update_index(fn):
+    """Locked read-modify-write; several herdr tabs write concurrently. macOS has no flock(1)."""
+    import fcntl
+    import hashlib
+    lockdir = os.path.join(HOME, ".cache", "wnotes")
+    os.makedirs(lockdir, exist_ok=True)
+    lock = os.path.join(lockdir, hashlib.md5(INDEX.encode()).hexdigest() + ".lock")
+    with open(lock, "a") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        idx = load_index()
+        result = fn(idx)
+        os.makedirs(os.path.dirname(INDEX), exist_ok=True)
+        tmp = "%s.tmp.%d" % (INDEX, os.getpid())
+        ordered = []
+        for e in idx["entries"]:
+            o = {k: e[k] for k in KEY_ORDER if k in e}
+            o.update({k: v for k, v in e.items() if k not in o})
+            ordered.append(o)
+        idx["entries"] = ordered
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(idx, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, INDEX)
+        return result
+
+
+def note_abs(e):
+    n = e["note"]
+    return n if os.path.isabs(n) else os.path.join(ROOT, n)
+
+
+def default_note_rel(project, kind, iid, epic=None):
+    org, _, rest = project.partition("/")
+    slug = rest.replace("/", "-") or org
+    leaf = "%s-%d" % ("mr" if kind == "mr" else "issue", int(iid))
+    if epic:
+        return "%s/workitem-%s/%s/%s/NOTE.md" % (org, epic, slug, leaf)
+    return "%s/%s/%s/NOTE.md" % (org, slug, leaf)
+
+
+def alias_refs(e):
+    out = set()
+    for a in e.get("aliases") or []:
+        p = parse_ref(a)
+        out.add(p["ref"] if p else a)
+    return out
+
+
+def find(idx, q, cwd=None):
+    """Entries matching q. q: ref/url (also via aliases), branch, worktree or note path, bare !N/#N/N."""
+    q = (q or "").strip()
+    ents = idx["entries"]
+    default_project = (git_info(cwd or os.getcwd()) or {}).get("project")
+    p = parse_ref(q, default_project)
+    if p:
+        exact = [e for e in ents if e["ref"] == p["ref"]]
+        return exact or [e for e in ents if p["ref"] in alias_refs(e)]
+    if re.fullmatch(r"\d+", q) and default_project:
+        return [e for e in ents if e.get("project") == default_project and str(e.get("iid")) == q]
+    hits = [e for e in ents if q and (e.get("branch") == q or q in (e.get("aliases") or []))]
+    if hits:
+        return hits
+    path = rp(q)
+    hits = [e for e in ents if e.get("note") and rp(note_abs(e)) == path]
+    if hits:
+        return hits
+    if os.path.isdir(path):
+        g = git_info(path)
+        return pick_by_worktree([e for e in ents if e.get("worktree") and in_worktree(path, e["worktree"], g)],
+                                (g or {}).get("branch"))
+    return []
+
+
+def branch_iids(branch):
+    """[(iid, kind_hint)] from a branch name. kind_hint None = could be either."""
+    out = []
+    for m in re.finditer(r"(?:^|[/_-])(?:issue|issues|workitem|work-item|wi)[-_]?(\d+)(?=$|[/_-])", branch):
+        out.append((int(m[1]), "issue"))
+    for m in re.finditer(r"(?:^|/)(\d{2,})-", branch):
+        out.append((int(m[1]), "issue"))
+    for m in re.finditer(r"(?:^|[/_-])mr[-_]?(\d+)(?=$|[/_-])", branch):
+        out.append((int(m[1]), "mr"))
+    for m in re.finditer(r"(?<![A-Za-z0-9])(\d{3,})(?![A-Za-z0-9])", branch):
+        out.append((int(m[1]), None))
+    hinted = {iid for iid, hint in out if hint}
+    seen, uniq = set(), []
+    for x in out:
+        if x not in seen and not (x[1] is None and x[0] in hinted):  # a hint beats the generic match
+            seen.add(x)
+            uniq.append(x)
+    return uniq
+
+
+def resolve_cwd(cwd, idx=None):
+    """(entry, how) for a directory: worktree (the cwd's git top) > branch > iid in branch. Never guesses
+    across projects; entries sharing one worktree/branch (an issue and its MR) resolve to the newest."""
+    idx = idx or load_index()
+    if not idx["entries"]:
+        return None, None
+    g = git_info(cwd)
+    cands = [e for e in idx["entries"] if e.get("worktree") and in_worktree(cwd, e["worktree"], g)]
+    if cands:
+        return pick_by_worktree(cands, (g or {}).get("branch"))[0], "worktree"
+    if not g or not g["branch"]:
+        return None, None
+    same_project = [e for e in idx["entries"] if g["project"] and e.get("project") == g["project"]]
+    hits = [e for e in same_project if e.get("branch") == g["branch"]]
+    if hits:
+        return pick_by_worktree(hits, g["branch"])[0], "branch"
+    cands = {}
+    for iid, hint in branch_iids(g["branch"]):
+        for e in same_project:
+            if e.get("iid") == iid and (hint is None or e.get("kind") == hint):
+                cands[e["ref"]] = e
+    if len(cands) == 1:
+        return list(cands.values())[0], "iid"
+    return None, None
+
+
+# ---------------------------------------------------------------- note files
+
+def fm_parse(text):
+    m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    if not m:
+        return {}, text
+    d = {}
+    for line in m[1].splitlines():
+        k, sep, v = line.partition(":")
+        if not sep:
+            continue
+        v = v.strip()
+        if v.startswith('"'):
+            try:
+                v = json.loads(v)
+            except ValueError:
+                v = v.strip('"')
+        d[k.strip()] = v
+    return d, text[m.end():]
+
+
+def fm_set(text, key, value):
+    value = json.dumps(value, ensure_ascii=False) if key == "title" else str(value)
+    m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    if not m:
+        return text
+    block = m[1]
+    if re.search(r"(?m)^%s:" % re.escape(key), block):
+        block = re.sub(r"(?m)^%s:.*$" % re.escape(key), lambda _: "%s: %s" % (key, value), block)
+    else:
+        block += "\n%s: %s" % (key, value)
+    return "---\n%s\n---\n%s" % (block, text[m.end():])
+
+
+def section(body, name):
+    m = re.search(r"(?ms)^## %s\s*\n(.*?)(?=^## |\Z)" % re.escape(name), body)
+    return m[1].strip() if m else ""
+
+
+def cap_note(text, limit=14000):
+    """Keep the injected note small: drop all but the last 3 dated session-log entries."""
+    if len(text) <= limit:
+        return text
+    head, sep, log = text.partition("\n## Session log")
+    if sep:
+        parts = re.split(r"(?m)^(?=### )", log)
+        if len(parts) > 4:
+            log = parts[0] + "\n(older session-log entries omitted — see the file)\n\n" + "".join(parts[-3:])
+        text = head + sep + log
+    if len(text) > limit:
+        text = text[:limit] + "\n\n(note truncated — see the file)\n"
+    return text
+
+
+def slugify(s, n=40):
+    return re.sub(r"-+$", "", re.sub(r"[^a-z0-9]+", "-", (s or "").lower()).strip("-")[:n])
+
+
+def render_note(f):
+    """Scaffold. f: kind ref url title epic branch worktree status description."""
+    q = json.dumps(f["title"], ensure_ascii=False)
+    fm = ["---", "kind: %s" % f["kind"], "ref: %s" % f["ref"], "url: %s" % f["url"], "title: %s" % q,
+          "epic: %s" % (f.get("epic") or ""), "branch: %s" % (f.get("branch") or ""),
+          "worktree: %s" % (f.get("worktree") or ""), "status: %s" % f.get("status", "opened"),
+          "last_updated: %s" % today()]
+    if f.get("aliases"):
+        fm.append("aliases: %s" % ", ".join(f["aliases"]))
+    fm.append("---")
+    desc = re.sub(r"<!--.*?-->", "", f.get("description") or "", flags=re.S).strip()
+    goal = "\n".join(l for l in desc.splitlines() if l.strip() and not l.startswith("#"))[:400].strip() or "TODO: one to three lines — the actual problem and why it matters."
+    mrs = ("- !%d — %s · %s · this note's MR" % (int(f["ref"].rsplit("!", 1)[1]), f["title"], f.get("status", "opened"))) if f["kind"] == "mr" else "- (none yet)"
+    if f["kind"] == "mr" and f.get("aliases"):
+        mrs += "\n- closes: %s" % ", ".join(f["aliases"])
+    org = f["project"].split("/")[0]
+    dec = ("Epic decision log: `%s/workitem-%s/DECISIONS.md` — cite ids as `- RJ-D07 · <lead clause>` (prefix per epic), do not restate them. New entries go in via `/decisions add`.\n" % (org, f["epic"])) if f.get("epic") else ""
+    return "\n".join(fm) + """
+
+# %(title)s
+
+## Goal
+%(goal)s
+
+## Merge requests
+%(mrs)s
+
+## Decisions in force
+%(dec)s<!-- Cite ids from the epic decision log. Decisions made on this MR/issue: dated bullets; tag `[epic]` if it binds other MRs.
+     Never delete; a reversal is a new entry. Mechanical fixes get no entry. -->
+
+## Constraints from the user
+<!-- Verbatim user words only, dated, one bullet each. Never paraphrase, never invent a constraint. -->
+
+## Open questions
+<!-- Strike resolved ones with ~~text~~; do not delete. -->
+
+## Where I left off
+Fresh start. Worktree `%(wt)s`, branch `%(branch)s`.
+
+## Session log
+### %(today)s
+- Started with `wnotes start`.
+""" % {"title": f["title"], "goal": goal, "mrs": mrs, "dec": dec, "wt": f.get("worktree") or "-",
+       "branch": f.get("branch") or "-", "today": today()}
+
+
+# ---------------------------------------------------------------- external tools
+
+def run(cmd, cwd=None, check=True, timeout=120):
+    import subprocess
+    try:
+        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        raise Die("%s not found on PATH" % cmd[0])
+    if check and p.returncode:
+        raise Die("%s failed: %s" % (" ".join(cmd[:4]), (p.stderr or p.stdout).strip()[:400]))
+    return p.stdout
+
+
+def ok(cmd):
+    import subprocess
+    return subprocess.run(cmd, capture_output=True).returncode == 0
+
+
+def glab_json(endpoint):
+    return json.loads(run(["glab", "api", endpoint], timeout=40))
+
+
+def enc(project):
+    from urllib.parse import quote
+    return quote(project, safe="")
+
+
+def fetch_meta(r, meta_file=None):
+    """Raw GitLab JSON for the issue/MR (plus epic_iid, closes). Fixture file wins over glab."""
+    if meta_file:
+        return json.loads(read(meta_file))
+    base = "projects/%s/%s/%d" % (enc(r["project"]), "merge_requests" if r["kind"] == "mr" else "issues", r["iid"])
+    meta = glab_json(base)
+    try:
+        if r["kind"] == "mr":
+            closes = glab_json(base + "/closes_issues")
+            meta["closes"] = [x["references"]["full"] for x in closes]
+            for x in closes:
+                if (x.get("epic") or {}).get("iid"):
+                    meta["epic_iid"] = x["epic"]["iid"]
+                    break
+        elif (meta.get("epic") or {}).get("iid"):
+            meta["epic_iid"] = meta["epic"]["iid"]
+    except Exception:
+        pass
+    return meta
+
+
+def live_state(r, meta_file=None):
+    meta = fetch_meta(r, meta_file)
+    st = {"state": meta.get("state"), "updated_at": meta.get("updated_at"), "title": meta.get("title")}
+    if r["kind"] == "mr":
+        st["draft"] = bool(meta.get("draft", False))
+        st["head_sha"] = meta.get("sha") or meta.get("head_sha")
+        st["pipeline"] = (meta.get("head_pipeline") or {}).get("status") or meta.get("pipeline")
+        unresolved = meta.get("unresolved_threads")
+        if unresolved is None and not meta_file:
+            try:
+                ds = glab_json("projects/%s/merge_requests/%d/discussions?per_page=100" % (enc(r["project"]), r["iid"]))
+                unresolved = sum(1 for d in ds if d["notes"] and d["notes"][0].get("resolvable") and not d["notes"][0].get("resolved"))
+            except Exception:
+                unresolved = None
+        st["unresolved"] = unresolved
+    return {k: v for k, v in st.items() if v is not None}, meta
+
+
+def herdr(*args, check=True):
+    out = run(["herdr", *args], check=check, timeout=90)
+    try:
+        return json.loads(out)["result"]
+    except (ValueError, KeyError):
+        return {}
+
+
+def herdr_tabs():
+    return herdr("tab", "list", check=False).get("tabs", [])
+
+
+def herdr_agents():
+    return herdr("agent", "list", check=False).get("agents", [])
+
+
+def find_tab(e):
+    """Live tab for an entry: by label, else by an agent whose cwd is inside the worktree."""
+    tabs, agents = herdr_tabs(), herdr_agents()
+    want = e.get("tab")
+    tab = next((t for t in tabs if want and t["label"] == want), None)
+    wt = e.get("worktree")
+    ag = next((a for a in agents if tab and a["tab_id"] == tab["tab_id"]), None)
+    if not ag and wt:  # by cwd: the agent's git top must BE the worktree (a main checkout owns no nested worktree)
+        ag = next((a for a in agents if in_worktree(a.get("foreground_cwd") or a.get("cwd") or "/", wt)), None)
+    if not tab and ag:
+        tab = next((t for t in tabs if t["tab_id"] == ag["tab_id"]), None)
+    if not tab:
+        return None
+    return {"tab_id": tab["tab_id"], "label": tab["label"], "agent": (ag or {}).get("name"),
+            "status": (ag or {}).get("agent_status") or tab.get("agent_status"),
+            "session_id": ((ag or {}).get("agent_session") or {}).get("value")}
+
+
+def settle_shell(pane):
+    """Wait for the new tab's shell prompt; answer an oh-my-zsh update prompt with n."""
+    import time
+    last, stable = None, 0
+    for _ in range(50):
+        txt = run(["herdr", "pane", "read", pane, "--lines", "10"], check=False)
+        if re.search(r"\[Y/n\]|\(Y/n\)|\[y/N\]|Would you like to (check|update)", txt):
+            run(["herdr", "pane", "send-text", pane, "n"], check=False)
+            run(["herdr", "pane", "send-keys", pane, "enter"], check=False)
+            last, stable = None, 0
+        elif txt.strip() and txt == last:
+            stable += 1
+            if stable >= 3:
+                return
+        else:
+            stable = 0
+        last = txt
+        time.sleep(0.4)
+
+
+def open_agent(wt, label, name, extra, prompt=None, focus=False):
+    """New herdr tab in wt with a Claude agent in auto mode. Returns tab/agent/session info."""
+    taken = {a.get("name") for a in herdr_agents()}
+    base, n = name, 1
+    while name in taken:
+        n += 1
+        name = "%s-%d" % (base, n)
+    envargs = [x for k in ("NOTES_ROOT", "NOTES_INDEX") if os.environ.get(k) for x in ("--env", "%s=%s" % (k, os.environ[k]))]
+    tab = herdr("tab", "create", "--cwd", wt, "--label", label, "--focus" if focus else "--no-focus", *envargs)
+    pane, tab_id = tab["root_pane"]["pane_id"], tab["tab"]["tab_id"]
+    settle_shell(pane)
+    try:
+        res = herdr("agent", "start", name, "--kind", "claude", "--pane", pane, "--timeout", "90000",
+                    "--", "--permission-mode", "auto", *extra)
+    except Die as ex:
+        if "agent_not_ready" in str(ex) or "blocked" in str(ex):
+            # Never auto-answer Claude's folder-trust dialog: that decision is the user's.
+            return {"tab": label, "tab_id": tab_id, "agent": name, "session_id": None,
+                    "blocked": "agent is blocked at startup (usually Claude's folder-trust dialog). Answer it in tab %r "
+                               "(herdr tab focus %s), then send the first prompt yourself." % (label, tab_id)}
+        raise
+    sid = ((res.get("agent") or {}).get("agent_session") or {}).get("value")
+    if prompt:
+        herdr("agent", "prompt", name, prompt)
+    return {"tab": label, "tab_id": tab_id, "agent": name, "session_id": sid}
+
+
+def transcript_session(cwd):
+    """Newest Claude transcript for a cwd: ~/.claude/projects/<cwd with non-alnum -> '-'>/<id>.jsonl."""
+    d = os.path.join(HOME, ".claude", "projects", re.sub(r"[^A-Za-z0-9]", "-", rp(cwd)))
+    try:
+        files = [os.path.join(d, f) for f in os.listdir(d) if f.endswith(".jsonl")]
+        return os.path.basename(max(files, key=os.path.getmtime))[:-6] if files else None
+    except OSError:
+        return None
+
+
+# ---------------------------------------------------------------- commands
+
+def need_entry(q, cwd=None):
+    idx = load_index()
+    hits = find(idx, q, cwd) if q else ([resolve_cwd(cwd or os.getcwd(), idx)[0]] if resolve_cwd(cwd or os.getcwd(), idx)[0] else [])
+    if not hits:
+        raise Die("no note registered for %r (try `wnotes ls`, or `wnotes start <url>`)" % (q or os.getcwd()))
+    if len(hits) > 1:
+        raise Die("ambiguous %r: %s" % (q, ", ".join(e["ref"] for e in hits)))
+    return hits[0]
+
+
+def cmd_parse(a):
+    r = parse_ref(a[0], (git_info(os.getcwd()) or {}).get("project")) if a else None
+    if not r:
+        raise Die("cannot parse %r" % (a[0] if a else ""))
+    print(json.dumps(r))
+
+
+def cmd_add(a):
+    import argparse
+    p = argparse.ArgumentParser(prog="wnotes add")
+    p.add_argument("--ref", required=True)
+    for k in ("url", "note", "branch", "worktree", "tab", "session", "epic", "title", "status"):
+        p.add_argument("--" + k)
+    p.add_argument("--alias", action="append", default=[])
+    o = p.parse_args(a)
+    r = parse_ref(o.ref)
+    if not r or r["kind"] == "epic":
+        raise Die("--ref must look like group/project!N or group/project#N")
+
+    def fn(idx):
+        e = next((x for x in idx["entries"] if x["ref"] == r["ref"]), None)
+        if not e:
+            e = {"ref": r["ref"], "kind": r["kind"], "project": r["project"], "iid": r["iid"]}
+            idx["entries"].append(e)
+        vals = {"url": o.url, "note": o.note, "branch": o.branch, "title": o.title, "status": o.status,
+                "worktree": os.path.abspath(os.path.expanduser(o.worktree)) if o.worktree else None,
+                "tab": o.tab, "session_id": o.session, "epic": int(o.epic) if o.epic else None}
+        for k, v in vals.items():
+            if v is not None:
+                e[k] = v
+        if "note" not in e:
+            e["note"] = default_note_rel(r["project"], r["kind"], r["iid"], e.get("epic"))
+        if o.alias:
+            e["aliases"] = sorted(set(e.get("aliases") or []) | set(o.alias))
+        e["updated"] = now()
+        return e
+    print(json.dumps(update_index(fn)))
+
+
+def cmd_rm(a):
+    r = parse_ref(a[0]) if a else None
+    if not r:
+        raise Die("usage: wnotes rm <ref>")
+    def fn(idx):
+        before = len(idx["entries"])
+        idx["entries"] = [e for e in idx["entries"] if e["ref"] != r["ref"]]
+        return before - len(idx["entries"])
+    print("removed %d (the NOTE.md file is left in place)" % update_index(fn))
+
+
+def cmd_lookup(a):
+    flags = {x for x in a if x.startswith("--")}
+    rest = [x for x in a if not x.startswith("--")]
+    if not rest:
+        raise Die("usage: wnotes lookup <q> [--path|--json]")
+    e = need_entry(rest[0])
+    if "--path" in flags:
+        print(note_abs(e))
+    else:
+        print(json.dumps(e, indent=2, ensure_ascii=False))
+
+
+def cmd_ls(a):
+    ents = load_index()["entries"]
+    if "--json" in a:
+        print(json.dumps(ents, indent=2, ensure_ascii=False))
+        return
+    for e in ents:
+        print("\t".join([e["ref"], e.get("status") or "-", e.get("tab") or "-", tilde(e.get("worktree") or "-"), e.get("note", "")]))
+
+
+def cmd_resolve(a):
+    cwd = a[a.index("--cwd") + 1] if "--cwd" in a else os.getcwd()
+    e, how = resolve_cwd(cwd)
+    if not e:
+        sys.exit(1)
+    if "--json" in a:
+        print(json.dumps(dict(e, matched_by=how), ensure_ascii=False))
+    else:
+        print(note_abs(e))
+
+
+def cmd_hook(a):
+    """SessionStart: print the note for this cwd as context. Silent on any failure."""
+    try:
+        try:
+            data = json.load(sys.stdin)
+        except ValueError:
+            data = {}
+        e, how = resolve_cwd(data.get("cwd") or os.getcwd())
+        if not e:
+            return
+        path = note_abs(e)
+        text = cap_note(read(path))
+        sys.stdout.write("## Resumed context from %s\n(matched by %s; update it with /checkpoint before you finish)\n\n%s\n" % (tilde(path), how, text))
+    except Exception:
+        return
+
+
+def cmd_reindex(a):
+    found = {}
+    for dp, dns, fns in os.walk(ROOT):
+        dns[:] = [d for d in dns if d not in (".git", "node_modules")]
+        if "NOTE.md" in fns:
+            p = os.path.join(dp, "NOTE.md")
+            fm, _ = fm_parse(read(p))
+            if fm.get("ref") and parse_ref(fm["ref"]):
+                found[fm["ref"]] = (p, fm)
+
+    def fn(idx):
+        byref = {e["ref"]: e for e in idx["entries"]}
+        for ref, (p, fm) in found.items():
+            r = parse_ref(ref)
+            e = byref.get(ref)
+            if not e:
+                e = {"ref": ref, "kind": r["kind"], "project": r["project"], "iid": r["iid"]}
+                idx["entries"].append(e)
+            e["note"] = os.path.relpath(p, ROOT)
+            for k_fm, k in (("url", "url"), ("title", "title"), ("status", "status"), ("branch", "branch"), ("worktree", "worktree")):
+                if fm.get(k_fm):
+                    e[k] = fm[k_fm]
+            if fm.get("epic"):
+                e["epic"] = int(fm["epic"]) if fm["epic"].isdigit() else fm["epic"]
+            if fm.get("aliases"):
+                e["aliases"] = sorted(set(e.get("aliases") or []) | {x.strip() for x in fm["aliases"].split(",") if x.strip()})
+        idx["entries"] = [e for e in idx["entries"] if e["ref"] in found]
+        return len(found)
+    print("indexed %d note(s) under %s" % (update_index(fn), tilde(ROOT)))
+
+
+def cmd_stamp(a):
+    import argparse
+    p = argparse.ArgumentParser(prog="wnotes stamp")
+    p.add_argument("--ref")
+    p.add_argument("--snapshot", action="store_true")
+    p.add_argument("--meta")
+    o = p.parse_args(a)
+    e = need_entry(o.ref)
+    path = note_abs(e)
+    info = {"note": path}
+    snap = None
+    if o.snapshot:
+        snap, meta = live_state(parse_ref(e["ref"]), o.meta)
+        snap["checked_at"] = now()
+    sess = None
+    info["recorded_session"] = False
+    pane = os.environ.get("HERDR_PANE_ID")
+    if pane:
+        ag = next((x for x in herdr_agents() if x.get("pane_id") == pane), None)
+        if ag:
+            acwd = ag.get("foreground_cwd") or ag.get("cwd") or "/"
+            owner = resolve_cwd(acwd)[0]
+            if owner and owner["ref"] == e["ref"]:
+                tab = next((t for t in herdr_tabs() if t["tab_id"] == ag["tab_id"]), {})
+                sess = {"session_id": (ag.get("agent_session") or {}).get("value"), "tab": tab.get("label"),
+                        "session_cwd": acwd}
+                info["recorded_session"] = True
+            else:  # checkpointing someone else's note from here: don't make this pane the note's tab/session
+                info["session_note"] = "calling pane is in %s, not in %s's worktree: tab/session left unchanged" % (tilde(acwd), e["ref"])
+
+    def fn(idx):
+        x = next(i for i in idx["entries"] if i["ref"] == e["ref"])
+        if sess:
+            x.update({k: v for k, v in sess.items() if v})
+        if snap:
+            x["snapshot"] = snap
+            if snap.get("state"):
+                x["status"] = snap["state"]
+        x["updated"] = now()
+        return x
+    ent = update_index(fn)
+    try:
+        text = read(path)
+        text = fm_set(text, "last_updated", today())
+        if snap and snap.get("state"):
+            text = fm_set(text, "status", snap["state"])
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+    except OSError as ex:
+        raise Die("could not update %s: %s" % (path, ex))
+    info.update({"session_id": ent.get("session_id"), "tab": ent.get("tab"), "snapshot": ent.get("snapshot")})
+    print(json.dumps(info, ensure_ascii=False))
+
+
+def ensure_worktree(repo, r, meta, o):
+    """Reuse the worktree that holds the branch, else create .claude/worktrees/<name>. Returns (path, branch, created)."""
+    top = (git_info(repo) or {}).get("top")
+    if not top or rp(repo) != top:
+        raise Die("%s is not a git checkout root" % repo)
+    if (git_info(repo) or {}).get("project") != r["project"] and not o.force_repo:
+        raise Die("%s has origin %r, expected %s (use --repo-dir / --force-repo)" % (repo, (git_info(repo) or {}).get("project"), r["project"]))
+    if r["kind"] == "mr":
+        branch = o.branch or meta.get("source_branch")
+        if not branch:
+            raise Die("MR metadata has no source_branch")
+        name = branch.replace("/", "-")
+    else:
+        slug = slugify(meta.get("title"))
+        branch = o.branch or "issue-%d-%s" % (r["iid"], slug)
+        name = "%d-%s" % (r["iid"], slug)
+    wl = run(["git", "-C", repo, "worktree", "list", "--porcelain"])
+    cur = None
+    for line in wl.splitlines():
+        if line.startswith("worktree "):
+            cur = line[9:]
+        elif line == "branch refs/heads/%s" % branch and cur:
+            return cur, branch, False
+    path = o.worktree_dir and os.path.join(os.path.expanduser(o.worktree_dir), name) or os.path.join(repo, ".claude", "worktrees", name)
+    if os.path.exists(path):
+        raise Die("%s exists but does not hold branch %s" % (path, branch))
+    if o.dry_run:
+        return path, branch, True
+    if not o.no_fetch:
+        run(["git", "-C", repo, "fetch", "origin", "--quiet"], check=False)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if ok(["git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/%s" % branch]):
+        run(["git", "-C", repo, "worktree", "add", path, branch])
+    elif r["kind"] == "mr":
+        src, dst = meta.get("source_project_id"), meta.get("target_project_id")
+        fork = bool(src and dst and src != dst)
+        if fork or not ok(["git", "-C", repo, "rev-parse", "--verify", "--quiet", "origin/%s" % branch]):
+            # Fork/community MR: the branch is not on origin (or a same-named one is unrelated). GitLab keeps
+            # the head at refs/merge-requests/<iid>/head.
+            run(["git", "-C", repo, "fetch", "origin", "refs/merge-requests/%d/head:refs/heads/%s" % (r["iid"], branch)])
+            run(["git", "-C", repo, "worktree", "add", path, branch])
+            sys.stderr.write("note: branch %s is a snapshot of refs/merge-requests/%d/head (no push target; re-fetch to refresh)\n" % (branch, r["iid"]))
+        else:
+            run(["git", "-C", repo, "worktree", "add", path, "-b", branch, "--track", "origin/%s" % branch])
+    else:
+        base = o.base
+        if not base:
+            ref = run(["git", "-C", repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], check=False).strip()
+            base = ref or next((c for c in ("origin/main", "origin/master")
+                                if ok(["git", "-C", repo, "rev-parse", "--verify", "--quiet", c])), None)
+        if not base:
+            raise Die("cannot determine a base branch; pass --base")
+        run(["git", "-C", repo, "worktree", "add", path, "-b", branch, base])
+    return path, branch, True
+
+
+def cmd_start(a):
+    import argparse
+    p = argparse.ArgumentParser(prog="wnotes start")
+    p.add_argument("target")
+    p.add_argument("--meta", help="fixture JSON instead of glab")
+    p.add_argument("--epic")
+    p.add_argument("--repo-dir")
+    p.add_argument("--worktree-dir", help="parent dir for the new worktree (default <repo>/.claude/worktrees)")
+    p.add_argument("--branch")
+    p.add_argument("--base")
+    p.add_argument("--label")
+    p.add_argument("--prompt", help="first prompt for the agent (default: none; the note is injected by the SessionStart hook)")
+    p.add_argument("--focus", action="store_true")
+    p.add_argument("--no-fetch", action="store_true")
+    p.add_argument("--no-agent", action="store_true")
+    p.add_argument("--force-repo", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
+    o = p.parse_args(a)
+    r = parse_ref(o.target, (git_info(os.getcwd()) or {}).get("project"))
+    if not r:
+        raise Die("cannot parse %r (want a GitLab issue/MR URL, group/project!N or #N)" % o.target)
+    if r["kind"] == "epic":
+        raise Die("epics have no NOTE.md — their decisions live in <org>/workitem-<iid>/DECISIONS.md")
+    meta = fetch_meta(r, o.meta)
+    title = meta.get("title") or r["ref"]
+    epic = o.epic or meta.get("epic_iid")
+    repo = os.path.expanduser(o.repo_dir) if o.repo_dir else os.path.join(HOME, "workspace", r["project"])
+    if not os.path.isdir(repo):
+        raise Die("no local checkout at %s (use --repo-dir)" % repo)
+    wt, branch, created = ensure_worktree(repo, r, meta, o)
+    idx = load_index()
+    existing = next((e for e in idx["entries"] if e["ref"] == r["ref"]), None)
+    note_rel = (existing or {}).get("note") or default_note_rel(r["project"], r["kind"], r["iid"], epic)
+    note = note_rel if os.path.isabs(note_rel) else os.path.join(ROOT, note_rel)
+    short = r["project"].split("/")[-1]
+    short = short[7:] if short.startswith("gitlab-") else short
+    label = o.label or (existing or {}).get("tab") or "%s%s%d" % (short, "!" if r["kind"] == "mr" else "#", r["iid"])
+    url = meta.get("web_url") or ""
+    aliases = sorted(set(meta.get("closes") or []))
+    plan = ["worktree  %s  (%s, branch %s)" % (tilde(wt), "create" if created else "reuse", branch),
+            "note      %s  (%s)" % (tilde(note), "keep" if os.path.exists(note) else "scaffold"),
+            "index     %s  (%s)" % (tilde(INDEX), "update" if existing else "add"),
+            "tab       %s  (%s)" % (label, "skip: --no-agent" if o.no_agent else "claude --permission-mode auto")]
+    if o.dry_run:
+        print("DRY RUN — nothing changed:\n  " + "\n  ".join(plan))
+        return
+    if not os.path.exists(note):
+        os.makedirs(os.path.dirname(note), exist_ok=True)
+        with open(note, "w", encoding="utf-8") as f:
+            f.write(render_note({"kind": r["kind"], "ref": r["ref"], "url": url, "title": title, "epic": epic,
+                                 "branch": branch, "worktree": wt, "status": meta.get("state") or "opened",
+                                 "description": meta.get("description"), "aliases": aliases, "project": r["project"]}))
+
+    def fn(idx):
+        e = next((x for x in idx["entries"] if x["ref"] == r["ref"]), None)
+        if not e:
+            e = {"ref": r["ref"], "kind": r["kind"], "project": r["project"], "iid": r["iid"]}
+            idx["entries"].append(e)
+        e.update({"title": title, "status": meta.get("state") or "opened", "url": url, "note": note_rel,
+                  "branch": branch, "worktree": wt, "updated": now()})
+        if epic:
+            e["epic"] = int(epic)
+        if aliases:
+            e["aliases"] = sorted(set(e.get("aliases") or []) | set(aliases))
+        return e
+    update_index(fn)
+    tabinfo = None
+    if not o.no_agent:
+        live = find_tab({"tab": label, "worktree": wt})
+        if live:
+            run(["herdr", "tab", "focus", live["tab_id"]], check=False) if o.focus else None
+            tabinfo = {"tab": live["label"], "agent": live["agent"], "session_id": live["session_id"], "reused": True}
+        else:
+            tabinfo = open_agent(wt, label, "%s%d" % ("mr" if r["kind"] == "mr" else "issue", r["iid"]), [], o.prompt, o.focus)
+        update_index(lambda idx: next(x for x in idx["entries"] if x["ref"] == r["ref"]).update(
+            {k: v for k, v in {"tab": tabinfo["tab"], "session_id": tabinfo.get("session_id"), "session_cwd": wt}.items() if v}))
+    print("\n".join(["STARTED %s — %s" % (r["ref"], title)] + ["  " + l for l in plan]))
+    if tabinfo:
+        print("  agent     %s (session %s)%s" % (tabinfo.get("agent"), tabinfo.get("session_id") or "?", " — tab already existed" if tabinfo.get("reused") else ""))
+        if tabinfo.get("blocked"):
+            print("  ! " + tabinfo["blocked"])
+    if r["kind"] == "issue":
+        print("\nNot run (that would change the issue on GitLab) — yours to apply:\n"
+              "  glab issue update %d --repo %s --assignee \"$(glab api user | jq -r .username)\"\n"
+              "  # set the work-item status to \"In progress\" in the issue sidebar" % (r["iid"], r["project"]))
+
+
+def git_summary(wt):
+    if not wt or not os.path.isdir(wt):
+        return "worktree missing"
+    st = run(["git", "-C", wt, "status", "--short"], check=False).strip().splitlines()
+    last = run(["git", "-C", wt, "log", "-1", "--format=%h %s"], check=False).strip()
+    return "%s · last commit: %s" % ("clean" if not st else "%d uncommitted file(s)" % len(st), last or "-")
+
+
+def diff_snapshot(old, new):
+    out = []
+    for k, label in (("state", "state"), ("draft", "draft"), ("pipeline", "pipeline"), ("unresolved", "unresolved threads"), ("head_sha", "head sha")):
+        if k in new and new.get(k) != (old or {}).get(k):
+            o, n = (old or {}).get(k, "—"), new[k]
+            if k == "head_sha":
+                o, n = str(o)[:8], str(n)[:8]
+            out.append("- %s: %s → %s" % (label, o, n))
+    if not out and new.get("updated_at") and new.get("updated_at") != (old or {}).get("updated_at") and old:
+        out.append("- updated_at moved (%s) — new activity, no tracked field changed" % new["updated_at"])
+    return out
+
+
+def cmd_briefing(a):
+    import argparse
+    p = argparse.ArgumentParser(prog="wnotes briefing")
+    p.add_argument("target", nargs="?")
+    p.add_argument("--meta")
+    o = p.parse_args(a)
+    e = need_entry(o.target)
+    path = note_abs(e)
+    fm, body = fm_parse(read(path))
+    print("## %s — %s" % (e["ref"], e.get("title") or fm.get("title", "")))
+    print("note: %s · last checkpoint: %s · status: %s" % (tilde(path), fm.get("last_updated", "?"), fm.get("status", "?")))
+    print("worktree: %s · %s" % (tilde(e.get("worktree") or "-"), git_summary(e.get("worktree"))))
+    live = find_tab(e) if os.environ.get("WNOTES_NO_HERDR") != "1" else None
+    print("tab: %s" % ("%s (%s)" % (live["label"], live["status"]) if live else "none running"))
+    print("\n### Changed since last checkpoint")
+    try:
+        new, _ = live_state(parse_ref(e["ref"]), o.meta)
+        d = diff_snapshot(e.get("snapshot"), new)
+        print("\n".join(d) if d else "- nothing tracked changed (checkpoint %s)" % ((e.get("snapshot") or {}).get("checked_at") or "has no snapshot yet"))
+        if not e.get("snapshot"):
+            print("- (no snapshot recorded — run `wnotes stamp --snapshot` at the next /checkpoint)")
+    except Die as ex:
+        print("- live state unavailable: %s" % ex)
+    for name in ("Where I left off", "Constraints from the user", "Open questions", "Decisions in force"):
+        s = re.sub(r"<!--.*?-->", "", section(body, name), flags=re.S).strip()
+        s = "\n".join(l for l in s.splitlines() if not re.match(r"^\s*[-*]\s*~~.*~~\s*$", l))
+        if s:
+            print("\n### %s\n%s" % (name, s))
+
+
+def cmd_resume(a):
+    import argparse
+    p = argparse.ArgumentParser(prog="wnotes resume")
+    p.add_argument("target", nargs="?")
+    p.add_argument("--briefing", action="store_true", help="read-only: same as `wnotes briefing`")
+    p.add_argument("--meta")
+    p.add_argument("--prompt", help="prompt for an existing idle tab, or the first prompt of a recreated one")
+    p.add_argument("--focus", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
+    o = p.parse_args(a)
+    if o.briefing:
+        return cmd_briefing([x for x in [o.target, "--meta", o.meta] if x])
+    e = need_entry(o.target)
+    wt = e.get("worktree")
+    live = find_tab(e)
+    if live:
+        print("TAB EXISTS %s (%s)%s" % (live["label"], live["status"], " — agent %s" % live["agent"] if live["agent"] else ""))
+        if o.dry_run:
+            return
+        run(["herdr", "tab", "focus", live["tab_id"]], check=False)
+        if o.prompt and live["agent"] and live["status"] in ("idle", "done"):
+            herdr("agent", "prompt", live["agent"], o.prompt)
+            print("prompted %s" % live["agent"])
+        elif o.prompt:
+            print("agent is %s — not prompting; focused the tab" % live["status"])
+        return
+    if not wt or not os.path.isdir(wt):
+        raise Die("worktree %s is gone — recreate it with `wnotes start %s`" % (wt, e.get("url") or e["ref"]))
+    sid = e.get("session_id") if e.get("session_cwd") and rp(e["session_cwd"]) == rp(wt) else None
+    src = "index"
+    if not sid:
+        sid, src = transcript_session(wt), "newest transcript"
+    first = o.prompt if o.prompt else (None if sid else "Read the note injected at session start (%s) and continue from \"Where I left off\"." % tilde(note_abs(e)))
+    label = e.get("tab") or e["ref"].split("/")[-1]
+    agent_name = "%s%d" % ("mr" if e.get("kind") == "mr" else "issue", e["iid"])
+    extra = ["--resume", sid] if sid else []
+    print("RESUME %s: %s" % (e["ref"], ("claude --resume %s (%s)" % (sid, src)) if sid else "fresh claude session (no session id known)"))
+    print("  tab %s in %s" % (label, tilde(wt)))
+    if o.dry_run:
+        return
+    info = open_agent(wt, label, agent_name, extra, first, o.focus)
+    update_index(lambda idx: next(x for x in idx["entries"] if x["ref"] == e["ref"]).update(
+        {k: v for k, v in {"tab": info["tab"], "session_id": info.get("session_id"), "session_cwd": wt}.items() if v}))
+    print("  agent %s (session %s)" % (info["agent"], info.get("session_id") or "?"))
+    if info.get("blocked"):
+        print("  ! " + info["blocked"])
+
+
+COMMANDS = {"parse": cmd_parse, "add": cmd_add, "rm": cmd_rm, "lookup": cmd_lookup, "ls": cmd_ls, "resolve": cmd_resolve,
+            "hook": cmd_hook, "reindex": cmd_reindex, "stamp": cmd_stamp, "start": cmd_start, "resume": cmd_resume,
+            "briefing": cmd_briefing}
+
+
+def main(argv):
+    if len(argv) < 2 or argv[1] in ("-h", "--help", "help") or argv[1] not in COMMANDS:
+        sys.stderr.write(__doc__)
+        return 0 if len(argv) > 1 and argv[1] in ("-h", "--help", "help") else 2
+    try:
+        COMMANDS[argv[1]](argv[2:])
+    except Die as ex:
+        sys.stderr.write("wnotes: %s\n" % ex)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

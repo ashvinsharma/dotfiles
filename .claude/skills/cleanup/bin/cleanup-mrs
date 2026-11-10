@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# cleanup-mrs — list the user's merged MRs since the last confirmed /cleanup run.
+#
+# Usage:
+#   cleanup-mrs [--since ISO8601] [--mr <project_path>!<iid>]... [--author USER]
+#
+# Output (TSV, oldest first):  merged_at  project_path  iid  source_branch  title  web_url
+#
+# --since    default: `cleanup-state get`, else 21 days ago
+# --mr       add an MR explicitly (must be merged); repeatable
+# --author   default: current glab user
+# Read-only: GET requests through `glab api` only.
+set -euo pipefail
+
+# Test seam: GLAB_CMD / HERDR_CMD override the binaries (e.g. "bash /path/fake-glab.sh").
+read -r -a GLAB <<<"${GLAB_CMD:-glab}"
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+since="" author="${CLEANUP_AUTHOR:-}"
+declare -a explicit=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --since) since="${2:?--since needs a value}"; shift 2 ;;
+    --mr) explicit+=("${2:?--mr needs project!iid}"); shift 2 ;;
+    --author) author="${2:?--author needs a value}"; shift 2 ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "error: unexpected arg: $1" >&2; exit 2 ;;
+  esac
+done
+
+days_ago() {
+  # portable: BSD date (-v) first, GNU date (-d) second
+  date -u -v-"$1"d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "$1 days ago" +%Y-%m-%dT%H:%M:%SZ
+}
+
+if [[ -z "$since" ]]; then
+  since="$(bash "$BIN_DIR/cleanup-state" get)"
+  [[ -n "$since" ]] || since="$(days_ago 21)"
+fi
+if [[ -z "$author" ]]; then
+  author="$("${GLAB[@]}" api user | jq -r '.username // empty')"
+  [[ -n "$author" ]] || { echo "error: cannot resolve glab user; pass --author" >&2; exit 1; }
+fi
+
+# project_path, iid, branch, title, url — one TSV row per merged MR object on stdin
+# shellcheck disable=SC2016  # jq program: $since is jq's variable
+FMT='.[] | select(.state == "merged" and .merged_at != null and .merged_at >= $since)
+  | [.merged_at, (.references.full | sub("![0-9]+$"; "")), (.iid|tostring), .source_branch,
+     (.title | gsub("[\\t\\n]"; " ")), .web_url] | @tsv'
+
+{
+  # --paginate emits one JSON array per page; -s add merges them. updated_after is only a
+  # prefilter (updated != merged), so merged_at is re-checked client-side in $FMT.
+  "${GLAB[@]}" api "merge_requests?author_username=${author}&state=merged&scope=all&per_page=100&updated_after=${since}" --paginate \
+    | jq -s 'add // []' | jq -r --arg since "$since" "$FMT"
+
+  for ref in ${explicit[@]+"${explicit[@]}"}; do
+    [[ "$ref" =~ ^(.+)!([0-9]+)$ ]] || { echo "error: bad --mr '$ref' (want group/project!iid)" >&2; exit 2; }
+    proj="${BASH_REMATCH[1]}" iid="${BASH_REMATCH[2]}"
+    "${GLAB[@]}" api "projects/${proj//\//%2F}/merge_requests/${iid}" \
+      | jq -s '.' | jq -r --arg since "" "$FMT"
+  done
+} | sort -u | sort -t$'\t' -k1,1

@@ -1,0 +1,240 @@
+#!/usr/bin/env bash
+# layout-audit — DRY-RUN report of how an ai-workflow-artifacts tree drifts from the canonical
+# layout, plus a proposed move script. Nothing is moved, renamed or deleted.
+#
+# Usage:
+#   layout-audit [--root <dir>] [--script <out.sh>] [--resolve] [--exclude <glob>]...
+#
+#   --root     artifacts repo (default: $ARTIFACTS_ROOT or ~/workspace/ai-workflow-artifacts)
+#   --script   write the proposed moves to <out.sh> (written without +x: read it, then `bash out.sh`)
+#   --resolve  decide bare-number dirs (`6887/`) with GET calls via `glab api`:
+#              only an issue → propose `issue-N`; MR or both → stays ambiguous (needs a parent epic)
+#   --exclude  skip any path (relative to the root) matching the glob; repeatable
+#
+# Canonical layout = the WRITER's rules in ~/.claude/commands/artifact.md (the README is older):
+#   workflow-artifacts/{org}/{project}/{issue-N | workitem-N | general-YYYYMMDD-slug}/{a-plan,b-implement,misc,NOTE.md,DECISIONS.md}
+#   workflow-artifacts/{org}/{workitem-N | issue-N}/{project}/mr-N/...      (MRs nest inside their epic)
+#   workflow-artifacts/{org}/{workitem-N}/...                                (cross-repo epic: no project segment)
+#
+# Auto-proposed (deterministic):  RENAME epic-N→workitem-N · date forms → general-YYYYMMDD-slug ·
+#   MOVE-LOOSE files at an identifier root → misc/ · MOVE-ROOT org dirs outside workflow-artifacts/ →
+#   workflow-artifacts/ (merged child by child; collisions are reported, never overwritten)
+# Reported only (needs you): bare-number dirs, mr-N at project/identifier level, loose root files,
+#   conflicts. Root-level org dirs are only relocated, not audited: apply the moves, then re-run.
+# The generated script moves with `git mv` for tracked paths and `mv` otherwise, and skips any move
+# whose source is missing or whose target already exists.
+set -euo pipefail
+
+# Test seam: GLAB_CMD / HERDR_CMD override the binaries (e.g. "bash /path/fake-glab.sh").
+read -r -a GLAB <<<"${GLAB_CMD:-glab}"
+
+ROOT="${ARTIFACTS_ROOT:-$HOME/workspace/ai-workflow-artifacts}"
+script_out="" resolve=0
+declare -a excludes=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --root) ROOT="${2:?--root needs a dir}"; shift 2 ;;
+    --script) script_out="${2:?--script needs a path}"; shift 2 ;;
+    --resolve) resolve=1; shift ;;
+    --exclude) excludes+=("${2:?--exclude needs a glob}"); shift 2 ;;
+    -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "error: unexpected arg: $1" >&2; exit 2 ;;
+  esac
+done
+[[ -d "$ROOT" ]] || { echo "error: no such dir: $ROOT" >&2; exit 1; }
+ROOT="$(cd "$ROOT" && pwd -P)"
+WA="$ROOT/workflow-artifacts"
+
+REC=""   # TSV lines: kind \t src \t dst \t note   (paths relative to ROOT); a variable, so no temp file
+rec() { local l; printf -v l '%s\t%s\t%s\t%s' "$1" "$2" "${3:--}" "${4:--}"; REC+="$l"$'\n'; }
+rel() { printf '%s' "${1#"$ROOT"/}"; }
+
+excluded() {
+  local r="$1" g
+  for g in ${excludes[@]+"${excludes[@]}"}; do
+    # shellcheck disable=SC2254
+    case "$r" in $g) return 0 ;; esac
+  done
+  return 1
+}
+
+# name -> ID | EPIC:<n> | DATE:<yyyymmdd>-<slug> | BARE | MR | CONTAINER
+classify() {
+  local n="$1"
+  if   [[ "$n" =~ ^(issue|workitem)-[0-9]+$ ]]; then echo ID
+  elif [[ "$n" =~ ^general-[0-9]{8}-.+$ ]]; then echo ID
+  elif [[ "$n" =~ ^epic-([0-9]+)$ ]]; then echo "EPIC:${BASH_REMATCH[1]}"
+  elif [[ "$n" =~ ^general-([0-9]{4})-([0-9]{2})-([0-9]{2})-(.+)$ ]]; then echo "DATE:${BASH_REMATCH[1]}${BASH_REMATCH[2]}${BASH_REMATCH[3]}-${BASH_REMATCH[4]}"
+  elif [[ "$n" =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})-(.+)$ ]]; then echo "DATE:${BASH_REMATCH[1]}${BASH_REMATCH[2]}${BASH_REMATCH[3]}-${BASH_REMATCH[4]}"
+  elif [[ "$n" =~ ^([0-9]{8})-(.+)$ ]]; then echo "DATE:${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+  elif [[ "$n" =~ ^[0-9]+$ ]]; then echo BARE
+  elif [[ "$n" =~ ^mr-[0-9]+(-.+)?$ ]]; then echo MR
+  else echo CONTAINER; fi
+}
+
+is_allowed_root_file() { case "$1" in NOTE.md|DECISIONS.md|WORKFLOW.md|README.md|.*) return 0 ;; esac; return 1; }
+
+# bare number under {org}/{project}: ask GitLab whether it is an issue or an MR
+resolve_bare() {   # project_path n -> issue | mr | both | unknown
+  local enc="${1//\//%2F}" n="$2" is_issue=0 is_mr=0
+  "${GLAB[@]}" api "projects/${enc}/issues/${n}" >/dev/null 2>&1 && is_issue=1
+  "${GLAB[@]}" api "projects/${enc}/merge_requests/${n}" >/dev/null 2>&1 && is_mr=1
+  if (( is_issue && is_mr )); then echo both; elif (( is_issue )); then echo issue; elif (( is_mr )); then echo mr; else echo unknown; fi
+}
+
+# inside an epic/issue identifier: {project}/mr-N is canonical; flag the rest
+check_epic_children() {   # dir
+  local d="$1" c name cls
+  for c in "$d"/*/; do
+    [[ -d "$c" ]] || continue
+    c="${c%/}"; name="$(basename "$c")"
+    case "$name" in a-plan|b-implement|misc) continue ;; esac
+    cls="$(classify "$name")"
+    excluded "$(rel "$c")" && continue
+    if [[ "$cls" == MR ]]; then
+      rec AMBIGUOUS "$(rel "$c")" - "mr dir directly under an epic: needs a {project}/ segment (…/{project}/$name)"
+      continue
+    fi
+    # treat other dirs as {project} dirs: only their mr-ish children are checked
+    local p pn pcls
+    for p in "$c"/*/; do
+      [[ -d "$p" ]] || continue
+      p="${p%/}"; pn="$(basename "$p")"; pcls="$(classify "$pn")"
+      excluded "$(rel "$p")" && continue
+      case "$pcls" in
+        BARE) rec AMBIGUOUS "$(rel "$p")" - "bare number inside an epic's project dir — probably mr-$pn, confirm" ;;
+        EPIC:*|DATE:*) : ;;   # deeper naming inside a project dir is not policed
+      esac
+    done
+  done
+}
+
+check_identifier() {   # dir (an identifier dir)
+  local d="$1" f name
+  for f in "$d"/* "$d"/.[!.]*; do
+    [[ -f "$f" ]] || continue
+    name="$(basename "$f")"
+    is_allowed_root_file "$name" && continue
+    excluded "$(rel "$f")" && continue
+    rec MOVE-LOOSE "$(rel "$f")" "$(rel "$d")/misc/$name" "loose file at identifier root"
+  done
+  case "$(basename "$d")" in workitem-*|issue-*) check_epic_children "$d" ;; esac
+}
+
+walk() {   # dir depth   — dir is an org / project container under workflow-artifacts
+  local dir="$1" depth="$2" c name cls
+  (( depth <= 5 )) || return 0
+  for c in "$dir"/*/; do
+    [[ -d "$c" ]] || continue
+    c="${c%/}"; name="$(basename "$c")"
+    excluded "$(rel "$c")" && continue
+    cls="$(classify "$name")"
+    case "$cls" in
+      ID) check_identifier "$c" ;;
+      EPIC:*) rec RENAME "$(rel "$c")" "$(rel "$dir")/workitem-${cls#EPIC:}" "epic- prefix → workitem-"; check_identifier "$c" ;;
+      DATE:*) rec RENAME "$(rel "$c")" "$(rel "$dir")/general-${cls#DATE:}" "date form → general-YYYYMMDD-slug"; check_identifier "$c" ;;
+      BARE)
+        local proj res="" ; proj="$(rel "$dir")"; proj="${proj#workflow-artifacts/}"
+        if (( resolve )) && [[ "$proj" == */* ]]; then res="$(resolve_bare "$proj" "$name")"; fi
+        if [[ "$res" == issue ]]; then
+          rec RENAME "$(rel "$c")" "$(rel "$dir")/issue-$name" "bare number is an issue (GitLab)"
+        else
+          rec AMBIGUOUS "$(rel "$c")" - "bare number ${res:+($res) }— issue or MR? (MRs need a parent epic)"
+        fi ;;
+      MR) rec AMBIGUOUS "$(rel "$c")" - "MR dir at project/org level: MRs must nest inside their epic ({epic}/{project}/$name)" ;;
+      CONTAINER) walk "$c" $((depth + 1)) ;;
+    esac
+  done
+  # loose files directly in an org/project container
+  local f
+  for f in "$dir"/*; do
+    [[ -f "$f" ]] || continue
+    excluded "$(rel "$f")" && continue
+    rec MANUAL "$(rel "$f")" - "loose file in container (not an identifier dir)"
+  done
+}
+
+plan_merge() {   # src dst  (absolute) — recursive, never overwrites
+  local src="$1" dst="$2" c
+  if [[ ! -e "$dst" ]]; then rec MOVE-ROOT "$(rel "$src")" "$(rel "$dst")" "outside workflow-artifacts/"; return; fi
+  if [[ -d "$src" && -d "$dst" ]]; then
+    for c in "$src"/* "$src"/.[!.]*; do
+      [[ -e "$c" ]] || continue
+      [[ "$(basename "$c")" == .DS_Store ]] && continue
+      plan_merge "$c" "$dst/$(basename "$c")"
+    done
+    return
+  fi
+  rec CONFLICT "$(rel "$src")" "$(rel "$dst")" "target exists — merge by hand"
+}
+
+# --- scan ----------------------------------------------------------------------------------------
+if [[ -d "$WA" ]]; then walk "$WA" 1; fi
+for e in "$ROOT"/* "$ROOT"/.[!.]*; do
+  [[ -e "$e" ]] || continue
+  name="$(basename "$e")"
+  case "$name" in workflow-artifacts|README.md|.git|.gitignore|.DS_Store|.ruby-lsp) continue ;; esac
+  excluded "$(rel "$e")" && continue
+  if [[ -d "$e" ]]; then plan_merge "$e" "$WA/$name"
+  else rec MANUAL "$(rel "$e")" - "loose file at repo root (cannot infer org/project)"; fi
+done
+
+# --- report --------------------------------------------------------------------------------------
+echo "# Artifact layout audit (dry run — nothing was changed)"
+echo "root: $ROOT"
+echo
+if grep -qE 'mr-|NOTE\.md|cross-repo' "$ROOT/README.md" 2>/dev/null; then readme_gap="none detected"
+else readme_gap="README.md does not describe MR nesting, cross-repo epics, NOTE.md or DECISIONS.md — update it to match artifact.md"; fi
+echo "Canonical: artifact.md (writer). README gaps: $readme_gap"
+echo
+if [[ -z "$REC" ]]; then echo "No drift found."; exit 0; fi
+for kind in RENAME MOVE-LOOSE MOVE-ROOT AMBIGUOUS CONFLICT MANUAL; do
+  n="$(printf '%s' "$REC" | awk -F'\t' -v k="$kind" '$1==k' | grep -c . || true)"
+  (( n > 0 )) || continue
+  echo "## $kind ($n)"
+  printf '%s' "$REC" | awk -F'\t' -v k="$kind" '$1==k { if ($3 != "-") printf "- `%s` → `%s` — %s\n", $2, $3, $4; else printf "- `%s` — %s\n", $2, $4 }'
+  echo
+done
+
+# --- proposed script -----------------------------------------------------------------------------
+if [[ -n "$script_out" ]]; then
+  {
+    cat <<EOF
+#!/usr/bin/env bash
+# Proposed by layout-audit on $(date +%F). READ BEFORE RUNNING; run with: bash $script_out
+# Tracked paths use \`git mv\`, others \`mv\`. A move is skipped when its source is missing or its
+# target exists. Nothing is committed. After applying, re-run layout-audit (root-level orgs are
+# only relocated in this pass; their contents are audited on the next one).
+set -euo pipefail
+ROOT="$ROOT"
+
+mv_path() {   # src dst  (relative to ROOT)
+  local src="\$1" dst="\$2"
+  [[ -e "\$ROOT/\$src" ]] || { echo "skip (missing): \$src"; return 0; }
+  [[ ! -e "\$ROOT/\$dst" ]] || { echo "skip (target exists): \$dst"; return 0; }
+  mkdir -p "\$(dirname "\$ROOT/\$dst")"
+  if [[ -n "\$(git -C "\$ROOT" ls-files -- "\$src" | head -n1)" ]]; then
+    git -C "\$ROOT" mv -- "\$src" "\$dst"
+  else
+    mv -- "\$ROOT/\$src" "\$ROOT/\$dst"
+  fi
+  echo "moved: \$src -> \$dst"
+}
+
+EOF
+    echo "# --- MOVE-ROOT: bring org dirs under workflow-artifacts/ (re-run the audit afterwards) ---"
+    printf '%s' "$REC" | awk -F'\t' '$1=="MOVE-ROOT"{printf "mv_path %s %s\n", "\047"$2"\047", "\047"$3"\047"}'
+    echo
+    echo "# --- MOVE-LOOSE: stray files into misc/ (before RENAME: their paths use the old dir names) ---"
+    printf '%s' "$REC" | awk -F'\t' '$1=="MOVE-LOOSE"{printf "mv_path %s %s\n", "\047"$2"\047", "\047"$3"\047"}'
+    echo
+    echo "# --- RENAME: deepest first, so child paths stay valid until their parent is renamed ---"
+    printf '%s' "$REC" | awk -F'\t' '$1=="RENAME"{n=gsub("/","/",$2); printf "%d\t%s\t%s\n", n, $2, $3}' | sort -rn -k1,1 \
+      | awk -F'\t' '{printf "mv_path %s %s\n", "\047"$2"\047", "\047"$3"\047"}'
+    echo
+    echo "# --- NOT proposed (decide by hand) ---"
+    printf '%s' "$REC" | awk -F'\t' '$1=="AMBIGUOUS"||$1=="CONFLICT"||$1=="MANUAL"{printf "# %s  %s — %s\n", $1, $2, $4}'
+  } >"$script_out"
+  echo "proposed script: $script_out (not executed; no +x bit)"
+fi

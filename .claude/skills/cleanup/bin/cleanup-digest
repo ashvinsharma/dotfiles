@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# cleanup-digest — bounded digest of the Claude sessions behind one branch/MR, for /cleanup.
+#
+# Usage:
+#   cleanup-digest --branch <source-branch> [--repo <checkout>] [--max-sessions N] [--list]
+#   cleanup-digest <project_path> <iid> [...]      resolves the branch via `glab api` (GET)
+#
+# Per session it prints: human prompts (user corrections flagged ⚠, interrupts ⛔), tool calls the
+# user rejected, failed tool calls, commands run 3+ times, and the last assistant message.
+#
+# Session matching (a worktree dir name is NOT the branch name, so never match on that):
+#   1. every transcript with a record `"gitBranch":"<branch>"` (whole-file grep — the opening
+#      records have null gitBranch and the first prompt can be a huge paste)
+#   2. every transcript in the project dir of a worktree checked out on <branch> (local branch or
+#      upstream name equal), found with `git worktree list --porcelain` in --repo
+# Sessions from a shared checkout that span several branches are filtered to <branch>'s records.
+# Subagent transcripts are skipped (their prompts are agent-written briefs).
+#
+# Env: CLAUDE_PROJECTS_DIR (default ~/.claude/projects), WORKSPACE_ROOT (default ~/workspace)
+set -euo pipefail
+
+# Test seam: GLAB_CMD / HERDR_CMD override the binaries (e.g. "bash /path/fake-glab.sh").
+read -r -a GLAB <<<"${GLAB_CMD:-glab}"
+
+PROJECTS="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
+WORKSPACE="${WORKSPACE_ROOT:-$HOME/workspace}"
+MAX=10 LIST=0 branch="" repo="" project="" iid=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --branch) branch="${2:?--branch needs a value}"; shift 2 ;;
+    --repo) repo="${2:?--repo needs a path}"; shift 2 ;;
+    --max-sessions) MAX="${2:?--max-sessions needs N}"; shift 2 ;;
+    --list) LIST=1; shift ;;
+    -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) if [[ -z "$project" ]]; then project="$1"; elif [[ -z "$iid" ]]; then iid="$1"
+       else echo "error: unexpected arg: $1" >&2; exit 2; fi; shift ;;
+  esac
+done
+
+if [[ -z "$branch" ]]; then
+  [[ -n "$project" && -n "$iid" ]] || { echo "usage: cleanup-digest <project_path> <iid> | --branch <branch>" >&2; exit 2; }
+  branch="$("${GLAB[@]}" api "projects/${project//\//%2F}/merge_requests/${iid}" | jq -r '.source_branch // empty')"
+  [[ -n "$branch" ]] || { echo "error: cannot resolve source branch for $project!$iid" >&2; exit 1; }
+fi
+case "$branch" in
+  main|master) echo "error: '$branch' is a default branch; its sessions are not one MR's" >&2; exit 1 ;;
+esac
+[[ -z "$repo" && -n "$project" ]] && repo="$WORKSPACE/$project"
+
+# Claude encodes a cwd as its path with every non-alphanumeric character turned into '-'.
+encode() { printf '%s' "$1" | sed -E 's/[^A-Za-z0-9]/-/g'; }
+
+declare -a files=() wt_dirs=()
+
+# 2. worktrees on the branch -> their project dirs (all sessions there count)
+if [[ -n "$repo" && -d "$repo" ]]; then
+  wt="" br=""
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      "worktree "*) wt="${line#worktree }"; br="" ;;
+      "branch "*) br="${line#branch refs/heads/}" ;;
+      "")
+        if [[ -n "$wt" && -n "$br" ]]; then
+          up="$(git -C "$wt" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+          if [[ "$br" == "$branch" || "${up#*/}" == "$branch" ]]; then wt_dirs+=("$wt"); fi
+        fi
+        wt="" br="" ;;
+    esac
+  done < <(git -C "$repo" worktree list --porcelain 2>/dev/null; echo)
+fi
+for w in ${wt_dirs[@]+"${wt_dirs[@]}"}; do
+  d="$PROJECTS/$(encode "$w")"
+  if [[ -d "$d" ]]; then
+    while IFS= read -r f; do files+=("$f"); done < <(find "$d" -maxdepth 1 -name '*.jsonl' 2>/dev/null)
+  fi
+done
+
+# 1. gitBranch match anywhere (also finds sessions of already-removed worktrees)
+if [[ -d "$PROJECTS" ]]; then
+  while IFS= read -r f; do files+=("$f"); done < <(
+    find "$PROJECTS" -mindepth 2 -maxdepth 2 -name '*.jsonl' -print0 2>/dev/null \
+      | xargs -0 grep -lF -e "\"gitBranch\":\"$branch\"" 2>/dev/null || true)
+fi
+
+# dedup, oldest first (bash 3.2-safe: no mapfile)
+declare -a sorted=()
+if (( ${#files[@]} > 0 )); then
+  while IFS= read -r f; do [[ -n "$f" ]] && sorted+=("$f"); done < <(
+    for f in "${files[@]}"; do stat -f '%m %N' "$f" 2>/dev/null || stat -c '%Y %n' "$f"; done \
+      | sort -n | awk '{ $1 = ""; sub(/^ /, ""); if (!seen[$0]++) print }')
+fi
+total=${#sorted[@]}
+if (( total == 0 )); then echo "no sessions found for ${project:+$project!}${iid:-$branch}"; exit 0; fi
+if (( LIST )); then printf '%s\n' "${sorted[@]}"; exit 0; fi
+if (( total > MAX )); then sorted=("${sorted[@]: -$MAX}"); fi
+
+echo "# Session digest — ${project:+$project!}${iid:-$branch} (${#sorted[@]} of $total sessions, branch \`$branch\`)"
+
+# shellcheck disable=SC2016  # jq program: $vars are jq's, not the shell's
+DIGEST='
+def trunc(n): if length > n then .[0:n] + " …" else . end;
+def oneline: gsub("\\s+"; " ") | trunc(160);
+def rtext: if (.content|type)=="array" then ([.content[] | .text? // ""] | join("\n")) else (.content // "" | tostring) end;
+def human_text: if (.message.content|type)=="string" then .message.content
+                else ([.message.content[]? | select(.type=="text") | .text] | join("\n")) end;
+def is_prompt: .type=="user" and (.isSidechain|not)
+  and ([.message.content[]? | select(.type=="tool_result")] | length)==0
+  and (human_text | test("^\\s*(<(command-message|task-notification|system-reminder|local-command|command-name|bash-input|bash-stdout)|Base directory for this skill)") | not)
+  and (human_text | gsub("\\s";"") | length) > 0;
+def correction: test("^\\s*(no[,. !]|nope|don.?t|do not|stop|wrong|not what|never|instead|i said|why did you|why are you|that.?s not|undo|revert)"; "i")
+  or test("(i told you|you (should|shouldn.?t) have|didn.?t ask|not what i)"; "i");
+def tool_label: if .name=="Bash" then (.input.command // "" | oneline)
+  elif (.input.file_path? // null) then "\(.name) \(.input.file_path)"
+  else .name end;
+def rejected: test("doesn.t want to proceed|User rejected|rejected the tool|has been denied|STOP what you are doing"; "i");
+
+# keep only records of this branch (null-branch records are the session scaffolding)
+(if $scoped then map(select(.gitBranch == null or .gitBranch == $b)) else . end) as $r
+| ($r | map(select(.type=="assistant"))) as $asst
+| ([$asst[] | .message.content[]? | select(.type=="tool_use") | {key: .id, value: {name, input}}] | from_entries) as $uses
+| ([$r[] | select(.type=="user") | .message.content[]? | select(.type=="tool_result")]) as $results
+| ($r | map(select(.timestamp)) | map(.timestamp) | sort) as $ts
+| ($r | map(select(is_prompt) | human_text | gsub("\\s+";" ") | trunc(300))) as $prompts
+| ([$results[] | ($uses[.tool_use_id] // {name:"?", input:{}}) as $u | (rtext) as $t
+     | select(.is_error==true)
+     | {rej: ($t | rejected), label: ($u | tool_label), err: ($t | gsub("\\s+";" ") | trunc(220))}]) as $errs
+| ([$results[] | ($uses[.tool_use_id] // {name:"?", input:{}}) as $u
+     | select(.is_error != true and $u.name=="Bash" and (rtext | test("(^|\\n)Failures:|Failure/Error|[1-9][0-9]* offenses? detected|Traceback \\(most recent call last\\)|\\bFAILED\\b|--- FAIL:|lefthook.*(fail|error)")))
+     | {label: ($u | tool_label), err: (rtext | gsub("\\s+";" ") | trunc(220))}]) as $bashfails
+| ([$uses[] | select(.name=="Bash") | .input.command // "" | split("\n")[0] | .[0:100]] | group_by(.) | map(select(length>=3) | {cmd: .[0], n: length}) | sort_by(-.n)) as $rep
+| ($asst | map(.message.content[]? | select(.type=="text") | .text) | last // "" | gsub("\\s+";" ") | trunc(400)) as $last
+| ($r | map(.sessionId // empty) | .[0] // "?") as $sid
+| ($errs | map(select(.rej | not))) as $fails
+| ($errs | map(select(.rej))) as $rejs
+| [ "\n## Session \($sid[0:8]) · \($ts[0] // "?" | .[0:16]) → \($ts[-1] // "?" | .[11:16]) · \($asst | map(.requestId // .uuid) | unique | length) assistant turns · \($prompts|length) prompts · \($fails|length + ($bashfails|length)) failed tool calls · \($rejs|length) rejected",
+    (if ($prompts|length)>0 then "\n### Human prompts (⚠ = looks like a correction, ⛔ = interrupt)",
+       ($prompts[:20][] | (if test("^\\[Request interrupted") then "⛔ " elif correction then "⚠ " else "" end) + "- " + .),
+       (if ($prompts|length)>20 then "- … \(($prompts|length)-20) more" else empty end) else empty end),
+    (if ($rejs|length)>0 then "\n### Tool calls the user rejected", ($rejs[:15][] | "- `\(.label)`") else empty end),
+    (if (($fails|length)+($bashfails|length))>0 then "\n### Failed tool calls", (($fails + $bashfails)[:25][] | "- `\(.label)`\n  ↳ \(.err)"),
+       (if (($fails|length)+($bashfails|length))>25 then "- … more" else empty end) else empty end),
+    (if ($rep|length)>0 then "\n### Commands run 3+ times", ($rep[:10][] | "- ×\(.n) `\(.cmd)`") else empty end),
+    (if ($last|length)>0 then "\n### Last assistant message\n\($last)" else empty end)
+  ] | .[]
+'
+wt_prefixes=""
+for w in ${wt_dirs[@]+"${wt_dirs[@]}"}; do wt_prefixes+="$PROJECTS/$(encode "$w")/"$'\n'; done
+for f in "${sorted[@]}"; do
+  # sessions that ran in a dedicated worktree dir are wholly this branch; others may span branches
+  scoped=true
+  if [[ -n "$wt_prefixes" ]] && grep -qxF "$(dirname "$f")/" <<<"$wt_prefixes"; then scoped=false; fi
+  jq -s -r --arg b "$branch" --argjson scoped "$scoped" "$DIGEST" "$f" 2>/dev/null \
+    || printf '\n## %s · could not parse\n' "$(basename "$f" .jsonl | cut -c1-8)"
+done

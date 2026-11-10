@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# cleanup-note — find and close NOTE.md files (the per-MR/issue notes in ai-workflow-artifacts).
+#
+# Usage:
+#   cleanup-note find <ref>                   print NOTE.md paths whose frontmatter `ref:` is exactly <ref>
+#                                             (<project>!<iid> or <project>#<iid>, e.g. gitlab-org/fleeting/taskscaler!118)
+#   cleanup-note status <NOTE.md> <status>    set frontmatter `status:` and `last_updated:` (YYYY-MM-DD)
+#
+# status is one of: opened open merged closed done (wnotes writes `opened`). Only frontmatter lines are edited; the body is untouched.
+# `find` matches the frontmatter ref, never the directory name: mr-118 can exist under several projects,
+# and project dir names do not follow project paths. Idempotent. Never creates a note, never touches a file without frontmatter.
+# Env: ARTIFACTS_ROOT (default ~/workspace/ai-workflow-artifacts)
+set -euo pipefail
+
+ROOT="${ARTIFACTS_ROOT:-$HOME/workspace/ai-workflow-artifacts}"
+
+cmd_find() {
+  local ref="${1:?ref (<project>!<iid> or <project>#<iid>)}" f val
+  [[ "$ref" =~ ^.+[!#][0-9]+$ ]] || { echo "error: ref must look like group/project!N or group/project#N" >&2; exit 2; }
+  [[ -d "$ROOT/workflow-artifacts" ]] || exit 0
+  while IFS= read -r f; do
+    # `ref:` value from the frontmatter only (first fence pair), quotes stripped
+    val="$(awk 'NR==1 && $0=="---" {fm=1; next} fm && $0=="---" {exit} fm && /^ref:/ {sub(/^ref:[ \t]*/, ""); gsub(/^["\x27]|["\x27]$/, ""); print; exit}' "$f")"
+    [[ "$val" == "$ref" ]] && printf '%s\n' "$f"
+  done < <(find "$ROOT/workflow-artifacts" -type f -name NOTE.md | sort)
+  return 0
+}
+
+cmd_status() {
+  local note="${1:?NOTE.md path}" status="${2:?status}" today out
+  case "$status" in opened|open|merged|closed|done) ;; *) echo "error: bad status '$status'" >&2; exit 2 ;; esac
+  [[ -f "$note" ]] || { echo "error: no such note: $note" >&2; exit 1; }
+  [[ "$(head -n1 "$note")" == "---" ]] || { echo "error: $note has no frontmatter; not touching it" >&2; exit 1; }
+  today="$(date +%F)"
+  # Edit only between the first two `---` fences; add the key when it is missing.
+  out="$(awk -v st="$status" -v today="$today" '
+    NR == 1 && $0 == "---" { infm = 1; print; next }
+    infm && $0 == "---" {
+      if (!seen_status) print "status: " st
+      if (!seen_upd)    print "last_updated: " today
+      infm = 0; print; next }
+    infm && /^status:/       { print "status: " st; seen_status = 1; next }
+    infm && /^last_updated:/ { print "last_updated: " today; seen_upd = 1; next }
+    { print }
+  ' "$note")"
+  [[ -n "$out" ]] || { echo "error: edit produced no output; $note untouched" >&2; exit 1; }
+  printf '%s\n' "$out" >"$note"   # in-place write keeps inode/permissions
+  printf '%s -> status: %s\n' "$note" "$status"
+}
+
+case "${1:-}" in
+  find) shift; cmd_find "$@" ;;
+  status) shift; cmd_status "$@" ;;
+  *) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

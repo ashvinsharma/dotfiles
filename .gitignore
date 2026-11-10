@@ -97,3 +97,6 @@
 
 # Serena MCP tool — per-project bootstrap/cache metadata, not a dotfile
 .serena/
+
+# Python bytecode
+__pycache__/

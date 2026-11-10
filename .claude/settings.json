@@ -72,6 +72,11 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/block-force-push.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/pre-push-scope.sh",
+            "timeout": 10
           }
         ]
       }
@@ -84,6 +89,16 @@
             "type": "command",
             "command": "bash '/Users/ashvin/.claude/hooks/herdr-agent-state.sh' session",
             "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "^(startup|resume|clear|compact|fork)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/resume-from-notes.sh",
+            "timeout": 5
           }
         ]
       }
