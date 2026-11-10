@@ -64,6 +64,7 @@
     ],
     "defaultMode": "acceptEdits"
   },
+  "model": "opus",
   "hooks": {
     "PreToolUse": [
       {
@@ -126,6 +127,7 @@
   "advisorModel": "opus",
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
+  "skipWorkflowUsageWarning": true,
   "theme": "auto",
   "switchModelsOnFlag": false,
   "skipAutoPermissionPrompt": true,
